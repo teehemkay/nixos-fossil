@@ -230,14 +230,22 @@ fossil-sync.timer (systemd, OnCalendar=*:0/5)
 
 ### New-repo provisioning
 
-Fossil's `all` list is per-user, not auto-discovered. Creating a new repo requires a per-host action. The `bin/new-repo.sh <name>` helper performs it across the cluster via SSH:
+Fossil's `all` list is per-user, not auto-discovered. Fossil users are *per-repository* (stored in each repo's SQLite), so a freshly `init`'d repo has no `syncuser` even though the cluster-wide password is in `fossil-sync.age`. The provisioning flow must create the per-repo sync user on canonical *before* any secondary clones the repo. The `bin/new-repo.sh <name>` helper performs the full flow across the cluster via SSH:
 
 ```bash
 # On canonical:
 sudo -u fossil fossil init /var/lib/fossil/museum/<name>.fossil
+# Create the sync user inside the new repo and grant sync capabilities.
+# Capability string "v" = Developer macro (Check-in, Check-out, Clone,
+# Hyperlinks, Read/Write ticket, etc.) — covers everything fossil sync needs.
+# Verify the exact capability bits against fossil's `user capabilities` docs
+# during implementation; tighten if "v" turns out to grant more than required.
+sudo -u fossil fossil user new syncuser -R /var/lib/fossil/museum/<name>.fossil
+sudo -u fossil fossil user password syncuser "$PASS" -R /var/lib/fossil/museum/<name>.fossil
+sudo -u fossil fossil user capabilities syncuser v -R /var/lib/fossil/museum/<name>.fossil
 sudo -u fossil fossil all add /var/lib/fossil/museum/<name>.fossil
 
-# On each secondary:
+# On each secondary (only after canonical's syncuser is in place):
 sudo -u fossil fossil clone https://syncuser:$PASS@fossil.exidia.com/<name> \
   /var/lib/fossil/museum/<name>.fossil
 sudo -u fossil fossil remote-url -R /var/lib/fossil/museum/<name>.fossil \
@@ -246,6 +254,8 @@ sudo -u fossil fossil all add /var/lib/fossil/museum/<name>.fossil
 ```
 
 The password is read from the agenix-decrypted file on each host during the SSH command. The script itself never sees the plaintext.
+
+**Verification**: before exiting, `bin/new-repo.sh` runs `sudo -u fossil fossil all sync -u` on each secondary and asserts a successful sync against the new repo. A failure here typically means the canonical-side `syncuser` step was skipped or the capability string is too narrow.
 
 ## 5. Hardening & Operations
 
@@ -449,7 +459,7 @@ Runbooks especially must answer "I have N minutes and the cluster is on fire —
 
 - **Initial bootstrap**: agenix admin keypair, Cloudflare account + DNS-01 API token, zone delegation from Hover, healthchecks.io account, Tailscale auth keys, initial secret encryption, push to GitHub.
 - **Adding a host**: VM provisioning, DNS A record, `nixos-anywhere` invocation, hardware-config generation, host pubkey capture, agenix rekey, follow-up `nixos-rebuild switch`, smoke test, Tailscale verification, ACME cert verification.
-- **Adding a repo**: `bin/new-repo.sh` invocation, under-the-hood explanation, post-creation verification on each host, bootstrap admin user via web UI.
+- **Adding a repo**: `bin/new-repo.sh` invocation; under-the-hood explanation including the canonical-side `syncuser` creation (per-repo user with sync capabilities — see §4); post-creation verification on each host (the script's own `fossil all sync -u` assertion + a manual check); bootstrap of the human-facing admin user via web UI after the syncuser+sync infrastructure is verified.
 
 **`docs/operations.org`** — Day-to-day.
 

@@ -57,3 +57,15 @@
 - **Disposition**: fixed
 - **Action**: §4 now includes a "Rotation implication" paragraph flagging that the password is embedded in every secondary repo's stored remote URL. §7's rotate-secrets runbook outline now spells out the per-repo `fossil remote-url -R ...` rewrite as a mandatory step for the fossil-sync rotation sub-section, with verification via manual sync + healthchecks ping.
 - **Commit**: `796d332`
+
+## Round 2 — Findings
+
+**Verdict**: needs-attention
+**Summary**: One material gap remains in the updated spec. The prior fixes look coherent, but the repo-provisioning flow still omits a required per-repository authentication step for the sync user.
+
+### Finding 1 — New repo provisioning clones with syncuser before creating that repo user
+- **File**: `docs/superpowers/specs/2026-05-14-fossil-server-design.md`
+- **Lines**: `231-248`
+- **Confidence**: `0.82`
+- **Body**: The new-repo flow initializes the repository on canonical and immediately has each secondary clone `https://syncuser:$PASS@fossil.exidia.com/<name>`, but the spec never creates or grants capabilities to `syncuser` inside the newly initialized Fossil repository. Fossil users are repository-local, so a cluster-wide `fossil-sync.age` password is not enough by itself; each new repo needs the sync account/password and clone/sync privileges before the secondary clone can authenticate. The later docs outline mentions bootstrapping an admin user via web UI, but that happens after `bin/new-repo.sh` and does not establish the sync user needed for the script to work.
+- **Recommendation**: Extend `bin/new-repo.sh` and the setup docs to create/update the per-repo `syncuser` on canonical before secondary cloning, including the exact Fossil command/capabilities and verification that `fossil clone https://syncuser:...` works.
