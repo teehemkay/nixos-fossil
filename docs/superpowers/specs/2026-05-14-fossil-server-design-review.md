@@ -35,3 +35,25 @@
 - **Confidence**: `0.79`
 - **Body**: The sync password is stored inside every secondary repo's SQLite file via `fossil remote-url`, while the docs promise a `rotate-secrets` runbook for the fossil-sync password. The spec does not say that rotating `fossil-sync.age` must also rewrite each existing repo's stored remote URL on every secondary. Without that, rotation can silently break future syncs for existing repos while new repos use the new secret.
 - **Recommendation**: Add rotation semantics: enumerate repos on each secondary, update `fossil remote-url -R ...` with the new password, run a manual sync, and verify healthchecks/journal output.
+
+## Round 1 — Addressed
+
+### Finding 1 — Sync convergence target contradicts the topology
+- **Disposition**: fixed
+- **Action**: §2 now states explicit per-direction worst-case timings (canonical→secondary ~5 min, secondary→secondary via canonical ~10 min). §4's "Eventual consistency" line and §8's acceptance criterion #4 were updated to match.
+- **Commit**: `796d332`
+
+### Finding 2 — First deploy path is underspecified for agenix-dependent hosts
+- **Disposition**: fixed
+- **Action**: §3 "Flake outputs" now defines a `<host>-bootstrap` output per host with no agenix-secret references (no fossil-server, no Tailscale auto-up, no tmk password, no security.acme). §6's initial-deploy steps rewritten: bootstrap install → capture pubkey → rekey → promote with the full `<host>` flake output.
+- **Commit**: `796d332`
+
+### Finding 3 — Private-key security claim is too strong
+- **Disposition**: fixed
+- **Action**: §4's security-property paragraph narrowed to "on-disk attack-surface reduction" — the chrooted fossil process can't open the ACME key file from disk. Explicitly notes that key material remains in fossil's memory and a memory-disclosure compromise within fossil could still expose it.
+- **Commit**: `796d332`
+
+### Finding 4 — Credential rotation does not address stored remote URLs
+- **Disposition**: fixed
+- **Action**: §4 now includes a "Rotation implication" paragraph flagging that the password is embedded in every secondary repo's stored remote URL. §7's rotate-secrets runbook outline now spells out the per-repo `fossil remote-url -R ...` rewrite as a mandatory step for the fossil-sync rotation sub-section, with verification via manual sync + healthchecks ping.
+- **Commit**: `796d332`
