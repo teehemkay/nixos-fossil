@@ -155,3 +155,46 @@
 - **Disposition**: fixed
 - **Action**: setup.org's fossil-sync encryption step now explicitly states the password is URL-embedded and lists the disallowed characters (`@`, `:`, `/`, `%`, `?`, `#`, `+`, whitespace). Removed the "or any strong source" loophole. Explicitly forbids `openssl rand -base64` (produces `+/`). `pwgen -s 64 1` stays as the recommended generator since `-s` produces alphanumeric output that's URL-safe.
 - **Commit**: `0ce089b`
+
+## Round 4 — Findings
+
+**Verdict**: needs-attention
+**Summary**: Fresh pass found three material issues. Two are in the recently revised agenix bootstrap path, and one is in the fossil-sync rotation runbook.
+
+### Finding 1 — High: zero-byte .age placeholders can block the first agenix edit
+- **File**: `docs/superpowers/plans/2026-05-14-fossil-server-cluster.md`
+- **Lines**: `143-148`
+- **Confidence**: `0.88`
+- **Body**: Task 3 now commits zero-byte `secrets/*.age` files so Nix path literals evaluate, and setup later tells the operator to run `agenix -e secrets/<name>.age`. But `agenix -e` treats an existing file as an encrypted age file to decrypt before opening the editor; a zero-byte file is not a valid age payload, so the first real secret population can fail before the editor opens. The plan should either commit valid encrypted placeholder age files, or explicitly remove/replace the zero-byte placeholder before the first `agenix -e` invocation for each secret.
+- **Recommendation**: Do not leave invalid `.age` files on the documented `agenix -e` path. Prefer valid encrypted placeholders, or update setup commands to delete/overwrite placeholders in a way agenix treats as first creation.
+
+### Finding 2 — High: generated admin age key is never passed to agenix for edit or rekey
+- **File**: `docs/superpowers/plans/2026-05-14-fossil-server-cluster.md`
+- **Lines**: `1635-1810`
+- **Confidence**: `0.82`
+- **Body**: The setup flow creates the admin identity at `~/.config/agenix/admin.key` and puts its public `age1...` recipient into `secrets/secrets.nix`, but every `agenix -e` and `agenix --rekey` command is shown without `-i ~/.config/agenix/admin.key` or an equivalent identity configuration. Once a secret exists, edit/rekey needs the private identity matching an existing recipient; agenix's usual defaults are SSH identities, not this custom age key path. This can block both initial placeholder editing after the zero-byte issue is fixed and the required host-key rekey step.
+- **Recommendation**: Either use an existing SSH key recipient that agenix will find by default, or consistently document `agenix -i ~/.config/agenix/admin.key -e ...` and `agenix -i ~/.config/agenix/admin.key --rekey`.
+
+### Finding 3 — Medium: fossil-sync rotation verifies new URLs before canonical password is updated
+- **File**: `docs/superpowers/plans/2026-05-14-fossil-server-cluster.md`
+- **Lines**: `2535-2567`
+- **Confidence**: `0.9`
+- **Body**: The rotation runbook rewrites each secondary's stored remote URL to use the new password and immediately runs `fossil all sync -u -v`, but the canonical repos' `syncuser` passwords are not updated until the next section. With `set -e`, that manual sync is likely to fail authentication and stop the procedure before the canonical update runs.
+- **Recommendation**: Update the canonical `syncuser` passwords before rewriting/verifying secondary remote URLs, or move the manual sync verification after both canonical and secondary updates are complete.
+
+## Round 4 — Addressed
+
+### Finding 1 — High: zero-byte .age placeholders can block the first agenix edit
+- **Disposition**: fixed
+- **Action**: setup.org gained an explanatory note explaining the 0-byte placeholder chicken-egg, plus a one-line "for first encryption only" workaround spec: `rm secrets/<name>.age && agenix -e secrets/<name>.age`. Each individual `agenix -e` invocation in Initial Bootstrap steps 3-7 (cloudflare-dns, fossil-sync, tmk-password, healthchecks-secondary-1, healthchecks-secondary-2, tailscale-authkey-{canonical,secondary-1,secondary-2}) now uses the rm-then-edit form. The note explicitly says subsequent rotations don't need the `rm` (file is real encrypted content after first run).
+- **Commit**: `5ae530f`
+
+### Finding 2 — High: generated admin age key is never passed to agenix for edit or rekey
+- **Disposition**: fixed
+- **Action**: Switched the admin identity from a generated age key to the operator's existing SSH ed25519 key. agenix finds `~/.ssh/id_ed25519` automatically as both recipient and decryption identity — no `-i` flag needed anywhere. Task 4 (skeleton) and Task 26 (full setup.org) bootstrap step 1 rewritten to skip `age-keygen` and paste the SSH pubkey directly. secrets.nix's `tmk` placeholder comment updated to reference `~/.ssh/id_ed25519.pub` instead of `age1...`.
+- **Commit**: `5ae530f`
+
+### Finding 3 — Medium: fossil-sync rotation verifies new URLs before canonical password is updated
+- **Disposition**: fixed
+- **Action**: Reordered the rotate-secrets fossil-sync subsection so canonical's syncuser password is updated FIRST (Step A), then secondaries' embedded URLs are rewritten and verified via `fossil all sync -u -v` (Step B). Added an explanatory paragraph stating that the original order would have caused `set -e` to abort the runbook mid-procedure. Subsection title changed to "extra steps required, in order".
+- **Commit**: `5ae530f`
