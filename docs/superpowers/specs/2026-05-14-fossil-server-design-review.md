@@ -107,3 +107,10 @@
 - **Confidence**: `0.9`
 - **Body**: The sync timer and new-repo flow rely on `sudo -u fossil fossil all ...`, but Fossil records the `all` repository list in the invoking user's `~/.fossil` global config. The spec only says the `fossil` system user has no shell/login/password and owns `/var/lib/fossil`; it does not assign a writable home or `FOSSIL_HOME`. On NixOS, a system user without an explicit home may not have a usable writable home for this state, so `fossil all add` during provisioning and `fossil all sync -u` from the timer can fail or track repos somewhere unintended. This is load-bearing because replication depends on the `all` list.
 - **Recommendation**: Specify the `fossil` user's home/global config location explicitly, e.g. set `users.users.fossil.home = "/var/lib/fossil"` with appropriate ownership, or set `FOSSIL_HOME`/equivalent in the systemd unit and provisioning SSH commands. Then document that `fossil all add/list/sync` are always run with that same state location and verify it in `bin/new-repo.sh`.
+
+## Round 4 — Addressed
+
+### Finding 1 — `fossil all` needs a writable home/global config for the `fossil` user
+- **Disposition**: fixed
+- **Action**: §5's fossil-user definition now sets `home = "/var/lib/fossil"; createHome = true;` with an explicit warning that NixOS's default would otherwise be `/var/empty`. §2's filesystem layout lists `/var/lib/fossil/.fossil` and explains why it lives there. §4's new-repo block switched all `sudo -u fossil` invocations to `sudo -iu fossil` so `$HOME` is set to the fossil user's home; an explanatory paragraph above the code block calls out that the systemd `fossil-sync.service` doesn't need `-i` because `User=fossil` already sets `$HOME` from the passwd entry. Verification command in the same section updated to match.
+- **Commit**: `2612afe`
