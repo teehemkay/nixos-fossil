@@ -35,3 +35,25 @@
 - **Confidence**: `0.98`
 - **Body**: The Bash regex `[[ "$status" =~ ^2|3 ]]` means `starts with 2` OR `contains 3`, so statuses like `403` or `503` can pass even though the message says only 2xx or 3xx should pass.
 - **Recommendation**: Change the condition to `[[ "$status" =~ ^[23][0-9][0-9]$ ]]`.
+
+## Round 1 — Addressed
+
+### Finding 1 — High: repo name is trusted as both filesystem path and URL path
+- **Disposition**: fixed
+- **Action**: Task 23 now validates the repo-name argument at script entry with the regex `^[A-Za-z0-9][A-Za-z0-9_-]*$` (no dots — fossil's `.fossil` extension makes dot-permissive names ambiguous; can relax later if needed). Script exits with FATAL message before any SSH work if validation fails.
+- **Commit**: `6ce5814`
+
+### Finding 2 — Medium: final eval checks can be false confidence because expected throws mask later failures
+- **Disposition**: fixed
+- **Action**: Added Task 21b — creates `hosts/_fixture-hardware.nix` (minimal non-throwing hardware stub) and three new flake outputs `<host>-eval-test` that import the fixture via `disabledModules` to swap out the throwing hardware-config. Task 35 now runs eval against the eval-test outputs in step 3 as the load-bearing wiring verification (step 2 still sanity-checks the throws). Definition of Done updated to call out both check sets.
+- **Commit**: `6ce5814`
+
+### Finding 3 — Medium: canonicalUrl is documented as required but has no behavioral effect
+- **Disposition**: fixed
+- **Action**: Removed `services.fossilServer.canonicalUrl` from Task 10's option definitions entirely (YAGNI). Removed `canonicalUrl = "https://fossil.exidia.com"` from Tasks 17 and 18 (secondary-1, secondary-2). `bin/new-repo.sh` keeps its hardcoded `CANONICAL="fossil.exidia.com"` — that's cluster-specific and lives in one place.
+- **Commit**: `6ce5814`
+
+### Finding 4 — Low: smoke-test accepts some non-2xx/3xx status codes
+- **Disposition**: fixed
+- **Action**: Changed regex in Task 24 from `^2|3` (alternation, matches 503) to `^[23][0-9][0-9]$` (character class, anchored both ends).
+- **Commit**: `6ce5814`
