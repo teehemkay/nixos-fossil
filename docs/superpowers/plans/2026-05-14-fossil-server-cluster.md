@@ -94,11 +94,17 @@ git commit -m "chore: add .gitignore for nix build artifacts"
 # inserting placeholder strings into publicKeys (which would break agenix).
 #
 # Bootstrap workflow:
-#   1. Initial state: only `tmk` (admin key) can encrypt/decrypt anything.
-#      All host lists below are [].
-#   2. Run `agenix -e <name>.age` for each secret you populate before the
-#      first deploy (cloudflare-dns, fossil-sync, tmk-password). Only the
-#      admin key encrypts them at this stage.
+#   1. Initial state: only `tmk` (SSH ed25519 pubkey) can encrypt/decrypt
+#      anything. All host lists below are [].
+#   2. For the FIRST encryption of each secret, the zero-byte placeholder
+#      .age file (committed by the implementation plan) must be removed
+#      before `agenix -e` runs, because agenix tries to decrypt any
+#      existing file before opening the editor — and 0-byte content is
+#      not valid age payload. Use:
+#         rm secrets/<name>.age && agenix -e secrets/<name>.age
+#      After the first successful encryption, subsequent rotations use
+#      plain `agenix -e secrets/<name>.age` (the file now holds valid
+#      age content that agenix can decrypt).
 #   3. After each host's bootstrap install, capture its host pubkey from
 #      /etc/ssh/ssh_host_ed25519_key.pub. Set the corresponding list
 #      below to [ "ssh-ed25519 AAAA... root@<host>" ]. Run `agenix --rekey`
@@ -146,7 +152,9 @@ in
 
 The `.age` files don't exist yet — they get encrypted by the operator during initial bootstrap (see Task 26 → setup.org). But the host configs (Tasks 15, 17, 18) reference them via Nix path literals like `../secrets/cloudflare-dns.age`, and Nix forces those paths during eval (`.drvPath`). So if the files don't exist, our eval-test verification in Task 35 fails with "no such file" *before* the operator has any chance to encrypt them.
 
-Solution: commit zero-byte placeholder files. They satisfy Nix's path-literal resolution. agenix only reads file *content* at activation time, not at eval, so 0-byte placeholders pass eval cleanly. The operator's `agenix -e <name>.age` calls in setup.org overwrite each placeholder with the real encrypted content during deploy.
+Solution: commit zero-byte placeholder files. They satisfy Nix's path-literal resolution. agenix only reads file *content* at activation time, not at eval, so 0-byte placeholders pass eval cleanly.
+
+Important caveat for the operator: `agenix -e <name>.age` won't work directly against a 0-byte placeholder (agenix tries to decrypt the existing file first, and 0-byte isn't valid age content). The setup workflow in Task 26 explicitly uses `rm secrets/<name>.age && agenix -e secrets/<name>.age` for each *initial* encryption to clear the placeholder first. Subsequent rotations use plain `agenix -e` once the file holds real encrypted content.
 
 ```bash
 touch secrets/.gitkeep
@@ -1854,11 +1862,11 @@ Then re-encrypt every secret whose recipient list includes this host:
 agenix --rekey
 #+end_src
 
-Commit:
+Commit BOTH the rekey AND the generated hardware-config that =nixos-anywhere= produced in step 4. Without committing the hardware-config, =hosts/<hostname>-hardware.nix= on GitHub remains the throwing placeholder, and =system.autoUpgrade= (which pulls from =github:teehemkay/nixos-fossil#<host>=) will fail to evaluate on the next scheduled run, blocking kernel patches:
 
 #+begin_src bash
-git add secrets/
-git commit -m "feat: register $hostname host key"
+git add secrets/ hosts/<hostname>-hardware.nix
+git commit -m "feat: register $hostname host key + hardware-config"
 git push
 #+end_src
 
