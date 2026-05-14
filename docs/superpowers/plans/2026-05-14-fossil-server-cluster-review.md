@@ -112,3 +112,46 @@
 - **Disposition**: fixed
 - **Action**: Scrubbed three remaining mentions: the plan header's Architecture paragraph, the reference.org module-options table row, and the promote-secondary runbook's comment block. The header now explicitly states that the canonical URL lives in each repo's stored remote URL (per-repo, set by `bin/new-repo.sh`) — not in the module config. `grep -c canonicalUrl` is 0.
 - **Commit**: `f11cdb8`
+
+## Round 3 — Findings
+
+**Verdict**: needs-attention
+**Summary**: Fresh pass found a few implementation-relevant issues introduced or left behind by the recent fixes. The main blocker is the eval-test verification: as written it can fail before deployment because the referenced secret files are not created by the implementation plan.
+
+### Finding 1 — High: eval-test outputs reference .age paths that the implementation plan never creates
+- **File**: `docs/superpowers/plans/2026-05-14-fossil-server-cluster.md`
+- **Lines**: `786-796`
+- **Confidence**: `0.9`
+- **Body**: The host configs use Nix path literals such as `../secrets/cloudflare-dns.age`, but the implementation tasks only create `secrets/secrets.nix` and `secrets/.gitkeep`; the actual `.age` files are created later by the operational setup docs. Nix path literals must exist during evaluation, so the final eval-test check can fail with missing path errors despite the note claiming agenix files are only needed at activation time. This makes Task 35's load-bearing verification unavailable until after manual secret creation, contradicting the plan's implementation handoff boundary.
+- **Recommendation**: Either add implementation tasks that create placeholder encrypted `.age` files before eval-test verification, or change the host configs to avoid path literals that require the files to exist during pre-deploy eval. Also remove or correct the note at lines 2838.
+
+### Finding 2 — Medium: adding-host docs still describe the old placeholder-recipient shape
+- **File**: `docs/superpowers/plans/2026-05-14-fossil-server-cluster.md`
+- **Lines**: `1782-1787`
+- **Confidence**: `0.88`
+- **Body**: After the Round 2 fix, host recipients are empty lists like `canonicalHost = [ ];` that should be replaced with a one-element list. The setup docs still tell the operator to replace a `<hostname> = "ssh-ed25519 AAAA-placeholder-..."` line, which no longer exists. Following this literally will either leave no host recipient added or encourage the wrong Nix shape, so the subsequent `agenix --rekey` will not grant the host access to its secrets.
+- **Recommendation**: Update the add-host step to match the new list form, e.g. replace `canonicalHost = [ ];` with `canonicalHost = [ "ssh-ed25519 AAAA... root@canonical" ];`, and do likewise for each secondary.
+
+### Finding 3 — Medium: fossil sync password is embedded in URLs without a URL-safe constraint or encoding
+- **File**: `docs/superpowers/plans/2026-05-14-fossil-server-cluster.md`
+- **Lines**: `1674-1680`
+- **Confidence**: `0.78`
+- **Body**: The setup docs allow `pwgen -s 64` or "any strong source" for `fossil-sync.age`, while `new-repo.sh` and the rotation runbook embed that raw password directly into `https://syncuser:$PASS@...` URLs. If the chosen password contains URL-significant characters such as `@`, `:`, `/`, `%`, `?`, or `#`, clone/remote-url parsing can break or store a different credential than intended. This can surface only after deployment when creating or rotating repos.
+- **Recommendation**: Constrain the sync password generation to URL-safe characters, or percent-encode the password before constructing Fossil remote URLs in both `bin/new-repo.sh` and the rotation runbook.
+
+## Round 3 — Addressed
+
+### Finding 1 — High: eval-test outputs reference .age paths that the implementation plan never creates
+- **Disposition**: fixed
+- **Action**: Task 3 step 2 now `touch`es 0-byte placeholder files for every `.age` path the host configs reference (8 files total). They get committed alongside `secrets.nix` and `.gitkeep`. Nix path literals resolve during eval (Task 35's eval-test); agenix only reads file content at activation time, so 0-byte placeholders are fine. setup.org's `agenix -e` calls overwrite each placeholder with real encrypted content during deploy. Retracted the wrong note in Task 35 that claimed paths didn't need to exist for eval.
+- **Commit**: `0ce089b`
+
+### Finding 2 — Medium: adding-host docs still describe the old placeholder-recipient shape
+- **Disposition**: fixed
+- **Action**: setup.org's add-host step 5 rewritten to show the new list-form before/after concretely (`canonicalHost = [ ]` → `canonicalHost = [ "ssh-ed25519 AAAA... root@canonical" ];`). The old placeholder-string find-and-replace instruction is gone.
+- **Commit**: `0ce089b`
+
+### Finding 3 — Medium: fossil sync password is embedded in URLs without a URL-safe constraint or encoding
+- **Disposition**: fixed
+- **Action**: setup.org's fossil-sync encryption step now explicitly states the password is URL-embedded and lists the disallowed characters (`@`, `:`, `/`, `%`, `?`, `#`, `+`, whitespace). Removed the "or any strong source" loophole. Explicitly forbids `openssl rand -base64` (produces `+/`). `pwgen -s 64 1` stays as the recommended generator since `-s` produces alphanumeric output that's URL-safe.
+- **Commit**: `0ce089b`
