@@ -198,3 +198,46 @@
 - **Disposition**: fixed
 - **Action**: Reordered the rotate-secrets fossil-sync subsection so canonical's syncuser password is updated FIRST (Step A), then secondaries' embedded URLs are rewritten and verified via `fossil all sync -u -v` (Step B). Added an explanatory paragraph stating that the original order would have caused `set -e` to abort the runbook mid-procedure. Subsection title changed to "extra steps required, in order".
 - **Commit**: `5ae530f`
+
+## Round 5 — Findings
+
+**Verdict**: needs-attention
+**Summary**: Fresh pass found two implementation blockers and one lower-severity contract drift. The recent eval-test fix is still not load-bearing, and the fossil service command appears unable to start as written.
+
+### Finding 1 — High: eval-test outputs still import the throwing hardware modules before they can be disabled
+- **File**: `docs/superpowers/plans/2026-05-14-fossil-server-cluster.md`
+- **Lines**: `1245-1260`
+- **Confidence**: `0.86`
+- **Body**: `mkHostEvalTest` imports `./hosts/${name}.nix`, and each host file directly imports its throwing `./<host>-hardware.nix`. The later `{ disabledModules = [ ./hosts/${name}-hardware.nix ]; }` module cannot reliably rescue this because Nix must load the imported file to collect the module graph; a file whose top-level expression is `throw` will throw during import. As a result, the `<host>-eval-test` outputs can still fail with the hardware placeholder instead of validating the real wiring, so Task 35's main verification remains false confidence.
+- **Recommendation**: Refactor host configs so hardware import is injectable, e.g. have `hosts/<name>.nix` accept a `hardwareModule`/`hardwarePath` via `specialArgs` or split host-common config from hardware import. Then make eval-test import the common host config plus `_fixture-hardware.nix` without ever importing the throwing file.
+
+### Finding 2 — High: fossil-server.service omits the required repository/directory argument
+- **File**: `docs/superpowers/plans/2026-05-14-fossil-server-cluster.md`
+- **Lines**: `670-676`
+- **Confidence**: `0.88`
+- **Body**: The `fossil server` invocation passes TLS, port, repolist, and baseurl flags but never passes the repository or repository-directory operand. Fossil's official help documents `fossil server ?REPOSITORY? ?OPTIONS?`, and `--repolist` only changes behavior when `REPOSITORY` is a directory. With no `${cfg.repoDir}` operand, the service is likely to exit at startup or serve the wrong default context instead of the museum directory.
+- **Recommendation**: Append `${cfg.repoDir}` as the command operand, e.g. `fossil server ... --repolist --baseurl https://${cfg.domain}/ --jsmode bundled ${cfg.repoDir}`. Keep `--repolist` if `/` should list repositories.
+
+### Finding 3 — Medium: syncCredentialFile is documented and required but has no behavioral effect
+- **File**: `docs/superpowers/plans/2026-05-14-fossil-server-cluster.md`
+- **Lines**: `530-536`
+- **Confidence**: `0.82`
+- **Body**: The module exposes `services.fossilServer.syncCredentialFile` as a required option, and every host sets it, but the module never reads `cfg.syncCredentialFile`. The actual scripts and runbooks hardcode `/run/agenix/fossil-sync`. This recreates the same kind of stale contract the plan removed for `canonicalUrl`: changing the option appears meaningful but will not affect repo creation, stored remote URLs, or sync behavior.
+- **Recommendation**: Either remove `syncCredentialFile` from the module contract and reference table, or use it consistently by passing it into generated helper scripts/runbooks or service environment where credentials are actually consumed.
+
+## Round 5 — Addressed
+
+### Finding 1 — High: eval-test outputs still import the throwing hardware modules before they can be disabled
+- **Disposition**: fixed
+- **Action**: Refactored host configs to break the import cycle. Each `hosts/<name>.nix` (and `<name>-bootstrap.nix`) no longer imports its hardware-config; the flake-level helpers (`mkHost`, `mkHostBootstrap`, `mkHostEvalTest`) compose hardware externally. `mkHost`/`mkHostBootstrap` include `./hosts/<name>-hardware.nix` (throwing placeholder, regenerated at deploy time); `mkHostEvalTest` includes `./hosts/_fixture-hardware.nix`. The `disabledModules` trick was removed entirely — eval-test never imports the throwing file, so the throw can't fire. Touched Tasks 15, 17, 18, 19, 20, 21b.
+- **Commit**: `678dfcf`
+
+### Finding 2 — High: fossil-server.service omits the required repository/directory argument
+- **Disposition**: fixed
+- **Action**: Verified against fossil source (`~/dev/playground/fossil-mirror/src/main.c:2976`): `find_option("repolist", 0, 0)` — third arg `0` means `--repolist` is a boolean flag (no value). Updated the systemd `ExecStart` in Task 13 to put `${cfg.repoDir}` as the trailing positional argument and keep `--repolist` as a bare boolean. Added an inline source-citing comment explaining the shape.
+- **Commit**: `678dfcf`
+
+### Finding 3 — Medium: syncCredentialFile is documented and required but has no behavioral effect
+- **Disposition**: fixed
+- **Action**: Removed `services.fossilServer.syncCredentialFile` from Task 10's options block (replaced with an explanatory NOTE comment pointing at the actual consumers: `bin/new-repo.sh` and the rotation runbook, both of which read `/run/agenix/fossil-sync` on the host directly). Stripped the `syncCredentialFile = ...` assignment from Tasks 15, 17, 18 (canonical, secondary-1, secondary-2) and from the promote-secondary runbook's example block. Removed the row from the reference.org options table.
+- **Commit**: `678dfcf`
