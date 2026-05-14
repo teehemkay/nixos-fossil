@@ -527,13 +527,12 @@ in {
       description = "Directory holding the .fossil files served by --repolist.";
     };
 
-    syncCredentialFile = lib.mkOption {
-      type = lib.types.path;
-      description = ''
-        Path to the agenix-decrypted file containing the fossil sync user
-        password (one line of plaintext, no trailing newline).
-      '';
-    };
+    # NOTE: there was a syncCredentialFile option here in earlier plan
+    # drafts. It was removed because the module never read it — the sync
+    # password is consumed by bin/new-repo.sh and the rotation runbook,
+    # which read it on the host from /run/agenix/fossil-sync
+    # (i.e. config.age.secrets.fossil-sync.path after activation, the
+    # only consumer of the path). Same shape as the canonicalUrl removal.
 
     syncInterval = lib.mkOption {
       type = lib.types.str;
@@ -671,10 +670,18 @@ git commit -m "feat: fossil-server.nix requests ACME cert via Cloudflare DNS-01"
             --port 443 \
             --cert ${certDir}/fullchain.pem \
             --pkey ${certDir}/key.pem \
-            --repolist ${cfg.repoDir} \
+            --repolist \
             --baseurl https://${cfg.domain}/ \
-            --jsmode bundled
+            --jsmode bundled \
+            ${cfg.repoDir}
         '';
+        # Notes on the argument shape (verified against fossil's
+        # src/main.c:2976 — `find_option("repolist", 0, 0)`):
+        #   - `--repolist` is a BOOLEAN flag (no value), enabling
+        #     directory-listing behavior when the positional REPOSITORY
+        #     argument is a directory.
+        #   - The REPOSITORY (or directory) is the trailing POSITIONAL
+        #     argument — `${cfg.repoDir}` at the end.
 
         Restart = "always";
         RestartSec = 3;
@@ -785,11 +792,15 @@ This host file declares EVERY agenix-dependent thing the canonical needs: the se
 { config, lib, pkgs, inputs, ... }:
 
 {
+  # NOTE: hardware-config import (./canonical-hardware.nix or the fixture
+  # used for eval-test) is composed in flake.nix by the helpers `mkHost`
+  # / `mkHostBootstrap` / `mkHostEvalTest`, NOT here. This keeps the
+  # throwing placeholder file out of imports so eval-test can substitute
+  # a non-throwing fixture without the throw firing during module load.
   imports = [
     ../modules/common.nix
     ../modules/disko.nix
     ../modules/fossil-server.nix
-    ./canonical-hardware.nix
   ];
 
   networking.hostName = "canonical";
@@ -829,7 +840,6 @@ This host file declares EVERY agenix-dependent thing the canonical needs: the se
     enable = true;
     role = "canonical";
     domain = "fossil.exidia.com";
-    syncCredentialFile = config.age.secrets.fossil-sync.path;
     # No healthcheckUrlFile — canonical isn't monitored (no sync timer).
   };
 
@@ -892,11 +902,12 @@ git commit -m "feat: hosts/canonical-hardware.nix placeholder (throws until prov
 { config, lib, pkgs, inputs, ... }:
 
 {
+  # Hardware-config import is composed by flake.nix's helpers, not here.
+  # See hosts/canonical.nix for the rationale.
   imports = [
     ../modules/common.nix
     ../modules/disko.nix
     ../modules/fossil-server.nix
-    ./secondary-1-hardware.nix
   ];
 
   networking.hostName = "secondary-1";
@@ -931,7 +942,6 @@ git commit -m "feat: hosts/canonical-hardware.nix placeholder (throws until prov
     enable = true;
     role = "secondary";
     domain = "s1.fossil.exidia.com";
-    syncCredentialFile = config.age.secrets.fossil-sync.path;
     healthcheckUrlFile = config.age.secrets."healthchecks-secondary-1".path;
   };
 
@@ -973,11 +983,12 @@ Same shape as `secondary-1.nix`. Note the DigitalOcean-specific disk path overri
 { config, lib, pkgs, inputs, ... }:
 
 {
+  # Hardware-config import is composed by flake.nix's helpers, not here.
+  # See hosts/canonical.nix for the rationale.
   imports = [
     ../modules/common.nix
     ../modules/disko.nix
     ../modules/fossil-server.nix
-    ./secondary-2-hardware.nix
   ];
 
   networking.hostName = "secondary-2";
@@ -1016,7 +1027,6 @@ Same shape as `secondary-1.nix`. Note the DigitalOcean-specific disk path overri
     enable = true;
     role = "secondary";
     domain = "s2.fossil.exidia.com";
-    syncCredentialFile = config.age.secrets.fossil-sync.path;
     healthcheckUrlFile = config.age.secrets."healthchecks-secondary-2".path;
   };
 
@@ -1059,25 +1069,30 @@ Replace the existing `outputs` section with:
       system = "x86_64-linux";
 
       # Helper: build a full nixosConfiguration for one host.
+      # Hardware-config is composed here (not inside the host file) so the
+      # eval-test helper below can swap it for a non-throwing fixture.
       mkHost = name: nixpkgs.lib.nixosSystem {
         inherit system;
         specialArgs = { inherit inputs; };
         modules = [
           disko.nixosModules.disko
           ./hosts/${name}.nix
+          ./hosts/${name}-hardware.nix
         ];
       };
 
       # Helper: build the bootstrap variant. Reuses common.nix + disko +
-      # hardware-config, but skips fossil-server, agenix, tailscale, and
-      # the tmk hashedPasswordFile (which all reference secrets the host
-      # cannot decrypt yet).
+      # the throwing hardware-config (which is harmless on first
+      # nixos-anywhere install because hardware-config gets regenerated
+      # immediately as part of the install). Skips fossil-server, agenix,
+      # tailscale, and tmk hashedPasswordFile.
       mkHostBootstrap = name: nixpkgs.lib.nixosSystem {
         inherit system;
         specialArgs = { inherit inputs; };
         modules = [
           disko.nixosModules.disko
           ./hosts/${name}-bootstrap.nix
+          ./hosts/${name}-hardware.nix
         ];
       };
     in {
@@ -1121,10 +1136,10 @@ After the bootstrap install succeeds, capture the host's `ssh_host_ed25519_key.p
 { config, lib, pkgs, inputs, ... }:
 
 {
+  # Hardware-config import is composed by flake.nix's helpers, not here.
   imports = [
     ../modules/common.nix    # users (no password), ssh, sudo, sysctl, firewall, autoUpgrade, etc.
     ../modules/disko.nix
-    ./canonical-hardware.nix
   ];
 
   networking.hostName = "canonical";
@@ -1139,10 +1154,10 @@ After the bootstrap install succeeds, capture the host's `ssh_host_ed25519_key.p
 { config, lib, pkgs, inputs, ... }:
 
 {
+  # Hardware-config import is composed by flake.nix's helpers, not here.
   imports = [
     ../modules/common.nix
     ../modules/disko.nix
-    ./secondary-1-hardware.nix
   ];
 
   networking.hostName = "secondary-1";
@@ -1157,10 +1172,10 @@ After the bootstrap install succeeds, capture the host's `ssh_host_ed25519_key.p
 { config, lib, pkgs, inputs, ... }:
 
 {
+  # Hardware-config import is composed by flake.nix's helpers, not here.
   imports = [
     ../modules/common.nix
     ../modules/disko.nix
-    ./secondary-2-hardware.nix
   ];
 
   networking.hostName = "secondary-2";
@@ -1243,19 +1258,17 @@ Add to `flake.nix`'s `let ... in` block (next to `mkHost` / `mkHostBootstrap`):
 
 ```nix
       # Helper: build an eval-test variant of a host. Imports the host
-      # config but swaps the throwing hardware-config for a fixture.
-      # Only for verifying that module wiring evaluates; NOT deployable.
+      # config but with the non-throwing fixture in place of the real
+      # hardware-config. Only for verifying that module wiring evaluates;
+      # NOT deployable. Because the host file (hosts/<name>.nix) no longer
+      # imports its hardware-config directly, we can simply NOT import
+      # ./hosts/${name}-hardware.nix here — no disabledModules trickery.
       mkHostEvalTest = name: nixpkgs.lib.nixosSystem {
         inherit system;
         specialArgs = { inherit inputs; };
         modules = [
           disko.nixosModules.disko
           ./hosts/${name}.nix
-          # Replace the throwing hardware-config by importing the fixture
-          # AFTER the host config; module merging means the throwing
-          # module is still imported but evaluating its file is what
-          # throws — so we use disabledModules to drop it entirely.
-          { disabledModules = [ ./hosts/${name}-hardware.nix ]; }
           ./hosts/_fixture-hardware.nix
         ];
       };
@@ -2223,7 +2236,6 @@ shape of something — not for narrative explanations (see
 | =role=                | enum: =canonical= | =secondary= | (required)                  | Cluster role. Only =secondary= runs the sync timer.                          |
 | =domain=              | string              | (required)                  | DNS name for ACME + fossil =--baseurl=.                                     |
 | =repoDir=             | path                | =/var/lib/fossil/museum=      | Repolist directory holding =.fossil= files.                                   |
-| =syncCredentialFile=  | path                | (required)                  | Path to agenix-decrypted file with fossil sync user password.              |
 | =syncInterval=        | string              | =*:0/5=                       | systemd OnCalendar expression for sync timer.                              |
 | =healthcheckUrlFile=  | nullable path       | =null=                        | Path to agenix-decrypted hc.io ping URL. =null= disables monitoring.        |
 
@@ -2337,7 +2349,6 @@ services.fossilServer = {
   enable = true;
   role = "canonical";   # was "secondary"
   domain = "fossil.exidia.com";   # was e.g. "s1.fossil.exidia.com"
-  syncCredentialFile = config.age.secrets.fossil-sync.path;
   # remove healthcheckUrlFile
 };
 #+end_src
