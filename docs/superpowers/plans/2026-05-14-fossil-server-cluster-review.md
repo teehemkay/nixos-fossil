@@ -57,3 +57,58 @@
 - **Disposition**: fixed
 - **Action**: Changed regex in Task 24 from `^2|3` (alternation, matches 503) to `^[23][0-9][0-9]$` (character class, anchored both ends).
 - **Commit**: `6ce5814`
+
+## Round 2 — Findings
+
+**Verdict**: needs-attention
+**Summary**: Fresh pass found a few implementation-relevant issues. The prior canonicalUrl fix is only partially reflected, and there are setup/verification paths that can still give false confidence or block first-time setup.
+
+### Finding 1 — High: placeholder host recipients make the first agenix encryption steps fail
+- **File**: `docs/superpowers/plans/2026-05-14-fossil-server-cluster.md`
+- **Lines**: `98-127`
+- **Confidence**: `0.88`
+- **Body**: The recipient map feeds placeholder SSH public keys into real secret recipient lists (`allHosts`, per-host Tailscale, healthchecks). The setup flow then asks the user to run `agenix -e` for those secrets before any host bootstrap has produced real host keys. Agenix will need valid recipients for the target secret, so secrets like `cloudflare-dns.age`, `fossil-sync.age`, and `tmk-password.age` cannot be encrypted while `allHosts` still contains invalid placeholder keys. This blocks the documented initial bootstrap path.
+- **Recommendation**: Represent not-yet-known host recipients as empty lists and concatenate lists, or change the setup flow so only valid recipients are present before each `agenix -e` / `agenix --rekey` run. Avoid invalid placeholder key strings in any active `publicKeys` list.
+
+### Finding 2 — Medium: Cloudflare secret creation command sets EDITOR to a non-editor
+- **File**: `docs/superpowers/plans/2026-05-14-fossil-server-cluster.md`
+- **Lines**: `1644-1651`
+- **Confidence**: `0.82`
+- **Body**: The setup docs use `EDITOR='env CLOUDFLARE_TOKEN=<paste>' agenix -e secrets/cloudflare-dns.age`, but agenix invokes `$EDITOR` to edit the temporary plaintext. This makes `env` the editor command rather than opening an editor, so the command is likely to fail or try to execute the temp file. The surrounding comments already tell the user to paste the env-file content manually.
+- **Recommendation**: Use a normal `agenix -e secrets/cloudflare-dns.age` command, or set `EDITOR` to an actual editor command. Keep the `CLOUDFLARE_DNS_API_TOKEN=...` value inside the encrypted file, not in `EDITOR`.
+
+### Finding 3 — Medium: smoke-test claims TLS validity but does not validate trust, hostname, or expiry
+- **File**: `docs/superpowers/plans/2026-05-14-fossil-server-cluster.md`
+- **Lines**: `1454-1469`
+- **Confidence**: `0.91`
+- **Body**: The script fetches `/` with `curl -sk`, which disables certificate validation, then treats any non-empty `openssl x509 -enddate` output as a valid TLS cert. An expired, self-signed, wrong-hostname, or untrusted certificate can still produce an end date and pass this check, contradicting the stated goal of verifying a valid matching cert.
+- **Recommendation**: Make the HTTPS check use normal certificate validation, for example `curl -fsS -o /dev/null https://$HOST/`, and optionally add `openssl x509 -checkend 0` if you still want an explicit expiry check. Avoid `-k` for the validity path.
+
+### Finding 4 — Low: canonicalUrl removal left stale generated documentation
+- **File**: `docs/superpowers/plans/2026-05-14-fossil-server-cluster.md`
+- **Lines**: `2146-2155`
+- **Confidence**: `0.94`
+- **Body**: Task 10 removed `services.fossilServer.canonicalUrl`, but the architecture summary still says secondaries are parameterized by `canonicalUrl`, and the generated reference table still documents `canonicalUrl` as a module option required for secondaries. This reintroduces the old contract at the documentation layer and can mislead future edits or runbook users into setting a nonexistent option.
+- **Recommendation**: Remove `canonicalUrl` from the architecture summary and reference table, or explicitly document the actual source of truth: per-repo remote URLs written by `bin/new-repo.sh`.
+
+## Round 2 — Addressed
+
+### Finding 1 — High: placeholder host recipients make the first agenix encryption steps fail
+- **Disposition**: fixed
+- **Action**: Task 3's `secrets/secrets.nix` restructured: each host's recipient is now a *list* (`canonicalHost`, `secondary1Host`, `secondary2Host`) that's empty initially. The admin key alone encrypts on first run. After each host's bootstrap install, the operator replaces the empty list with the captured pubkey and runs `agenix --rekey`. Bootstrap workflow comment block in the file explains the staged sequence.
+- **Commit**: `f11cdb8`
+
+### Finding 2 — Medium: Cloudflare secret creation command sets EDITOR to a non-editor
+- **Disposition**: fixed
+- **Action**: Task 26's setup.org Cloudflare-token step now uses plain `agenix -e secrets/cloudflare-dns.age` and documents the env-file format (`CLOUDFLARE_DNS_API_TOKEN=...`) for the user to paste into whatever `$EDITOR` resolves to. Removed the bogus `EDITOR='env CLOUDFLARE_TOKEN=...'` prefix.
+- **Commit**: `f11cdb8`
+
+### Finding 3 — Medium: smoke-test claims TLS validity but does not validate trust, hostname, or expiry
+- **Disposition**: fixed
+- **Action**: Task 24's `bin/smoke-test.sh` switched from `curl -sk` (skip-verify) to `curl -fsS` (full TLS validation including trust chain and hostname). The second check uses `openssl x509 -checkend 0` to explicitly fail on expired certs, then extracts the end date for the human-readable pass message.
+- **Commit**: `f11cdb8`
+
+### Finding 4 — Low: canonicalUrl removal left stale generated documentation
+- **Disposition**: fixed
+- **Action**: Scrubbed three remaining mentions: the plan header's Architecture paragraph, the reference.org module-options table row, and the promote-secondary runbook's comment block. The header now explicitly states that the canonical URL lives in each repo's stored remote URL (per-repo, set by `bin/new-repo.sh`) — not in the module config. `grep -c canonicalUrl` is 0.
+- **Commit**: `f11cdb8`
