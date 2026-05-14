@@ -37,7 +37,12 @@ Design a small, hardened NixOS-based fossil-server cluster for self-hosting a pe
 | secondary-1 | `s1.fossil.exidia.com`        | Hetzner Cloud, DC2 (e.g. Falkenstein), CPX11 | `fossil all sync -u` every 5 min |
 | secondary-2 | `s2.fossil.exidia.com`        | DigitalOcean, region selected at provisioning (added later) | `fossil all sync -u` every 5 min |
 
-Convergence: changes made on any host propagate everywhere within ~2 sync intervals (canonical → secondary in one tick, secondary → other-secondary in the next tick via canonical). All three accept user writes; fossil's append-only artifact model means concurrent edits don't destroy data, they create independent branch leaves that can be merged later.
+Convergence — explicit timings with a 5-minute sync interval:
+
+- Write originated on **canonical** → reaches each secondary within ~5 min worst-case (one timer tick).
+- Write originated on **a secondary** → reaches canonical within ~5 min (its own next tick pushes), then reaches the *other* secondary within ~5 min more (the other's next tick pulls). **Worst-case secondary→secondary convergence: ~10 min.**
+
+All three hosts accept user writes; fossil's append-only artifact model means concurrent edits don't destroy data, they create independent branch leaves that can be merged later.
 
 ### DNS
 
@@ -134,11 +139,15 @@ Each `hosts/<name>.nix` is tiny — imports the common modules, sets the role, d
 
 ### Flake outputs
 
-`flake.nix` exposes:
+`flake.nix` exposes two outputs per host — a regular one and a bootstrap one — to resolve the chicken-egg where the first install activates *before* the host's SSH host pubkey has been added to the agenix recipient list (so no secrets are decryptable yet):
 
-- `nixosConfigurations.canonical`
-- `nixosConfigurations.secondary-1`
-- `nixosConfigurations.secondary-2` (added later)
+- `nixosConfigurations.canonical` — full config (fossil-server, Tailscale auto-up, tmk console password — all reference agenix secrets)
+- `nixosConfigurations.canonical-bootstrap` — minimal config: same base (SSH key-only with tmk's pubkeys, sysctl hardening, firewall), but with `services.fossilServer.enable = false`, no `services.tailscale.authKeyFile`, no `users.users.tmk.hashedPasswordFile`, no `security.acme` cert request. References *zero* agenix secrets. Used only for the first `nixos-anywhere` activation.
+- Same pair for `secondary-1`, `secondary-2`.
+
+After the bootstrap deploy succeeds and the host's pubkey is rekeyed into the relevant secrets, `nixos-rebuild switch --flake .#<host>` flips everything on.
+
+The bootstrap output is a thin wrapper: `import ./hosts/<host>.nix { bootstrap = true; }`. The host file branches on the flag to disable the secret-dependent options. Both outputs share the same hardware-config import.
 
 ## 4. Data Flow & Lifecycle
 
@@ -158,7 +167,7 @@ Renewal: systemd timer (acme-<domain>.timer) fires daily.
          fossil (~1s downtime).
 ```
 
-**Security property**: the private key never enters fossil's chroot. Fossil reads `--cert` and `--pkey` as root *before* chrooting and dropping privileges. A compromised fossil process cannot exfiltrate the cert key.
+**Security property (narrow)**: after fossil chroots and drops privileges, it can no longer open the ACME key file from disk. The chroot's filesystem view doesn't include `/var/lib/acme/`, and the dropped-privilege user has no read access to it on the host filesystem. This is an *on-disk attack-surface reduction*, not absolute key secrecy: the TLS key material remains resident in fossil's memory while the process is running, so a memory-disclosure compromise within fossil itself could still expose it. The claim we make is file-access reduction, nothing stronger.
 
 ### Fossil request handling
 
@@ -204,11 +213,13 @@ fossil-sync.timer (systemd, OnCalendar=*:0/5)
 
 **How the sync credential gets there**: `fossil-sync.age` holds the password. Each repo's stored remote URL is set once (during repo provisioning) to `https://syncuser:PASS@fossil.exidia.com/<reponame>` via `fossil remote-url`. The password lives in the repo's SQLite file, readable only by the `fossil` user (file perms `0600`).
 
+**Rotation implication**: the password is embedded in every secondary repo's stored remote URL, not just `fossil-sync.age`. Rotating the credential requires *both* (a) re-encrypting `fossil-sync.age` with the new value and (b) re-running `fossil remote-url -R <repo> https://syncuser:NEW@...` for every repo on every secondary. The rotate-secrets runbook (§7) enumerates this explicitly.
+
 **Conflict semantics**:
 
 - Concurrent commits on different nodes create independent branch leaves; both exist, no destruction. Merge later if needed.
 - Wiki/forum/ticket updates: last-writer-wins per field (fossil's documented behaviour).
-- Eventual consistency, ~5 min worst-case convergence.
+- Eventual consistency. Worst-case convergence: ~5 min canonical↔secondary (one tick), ~10 min secondary↔secondary via canonical (two ticks). See §2 for the per-direction breakdown.
 
 **Canonical down**:
 
@@ -346,12 +357,13 @@ Other failures: noticed on next SSH + `systemctl --failed`. Document the gap exp
 1. On laptop: `cd ~/dev/my/nixos-fossil`.
 2. Provision Hetzner/DO VM; capture public IP.
 3. Add Cloudflare A record for the host's DNS name.
-4. From laptop: `nixos-anywhere --flake .#<hostname> --target-host root@<ip> --generate-hardware-config nixos-generate-config ./hosts/<hostname>-hardware.nix`.
-5. After install + reboot, capture the host's new SSH host pubkey.
-6. Update `secrets/secrets.nix` to add the host's pubkey to relevant secrets' recipient lists.
-7. Re-encrypt secrets (`agenix --rekey`).
-8. `nixos-rebuild switch --flake .#<hostname> --target-host root@<ip>` (applies secret-dependent config).
-9. Verify: `bin/smoke-test.sh <hostname>` (TLS cert, HTTPS 200 on /timeline.rss, Tailscale joined).
+4. From laptop, run the bootstrap install (no secrets referenced — see §3 "Flake outputs"):
+   `nixos-anywhere --flake .#<hostname>-bootstrap --target-host root@<ip> --generate-hardware-config nixos-generate-config ./hosts/<hostname>-hardware.nix`.
+5. After install + reboot, capture the host's new SSH host pubkey (from `/etc/ssh/ssh_host_ed25519_key.pub` via the SSH session — your SSH user pubkeys are already in the bootstrap config so login works).
+6. Update `secrets/secrets.nix` to add the host's pubkey to the recipient lists for the secrets this host needs (cloudflare-dns, fossil-sync, tmk-password, tailscale-authkey-<host>, healthchecks-<host> if a secondary).
+7. Re-encrypt secrets: `agenix --rekey`.
+8. Promote to full config: `nixos-rebuild switch --flake .#<hostname> --target-host root@<ip>`. This is the first activation that references agenix secrets; all of them must decrypt now. ACME issues the TLS cert during this run. Tailscale auto-joins. fossil-server starts.
+9. Verify: `bin/smoke-test.sh <hostname>` (TLS cert valid, HTTPS 200 on /timeline.rss, Tailscale joined).
 
 ### Ongoing updates
 
@@ -456,7 +468,7 @@ Runbooks especially must answer "I have N minutes and the cluster is on fire —
 
 - **promote-secondary**: when canonical is lost; elect new canonical; repoint DNS; disable sync timer on promoted host; optionally repoint remaining secondaries.
 - **recover-via-rescue**: Hetzner rescue mode + DigitalOcean equivalent; mount disk; edit config; reboot.
-- **rotate-secrets**: cloudflare token / fossil-sync password / tailscale authkey — each as a sub-section sharing the 80% common procedure (re-encrypt, redeploy).
+- **rotate-secrets**: cloudflare token / fossil-sync password / tailscale authkey — each as a sub-section. The common procedure is re-encrypt the `.age` file + `nixos-rebuild switch` per host. **The fossil-sync sub-section adds a mandatory extra step**: after redeploy, enumerate repos on each secondary and run `fossil remote-url -R <repo> https://syncuser:NEW@<canonical>/<reponame>` for every repo (the old password is embedded in each repo's SQLite-stored remote URL; just rotating `fossil-sync.age` would silently leave existing repos using the old password). Verify with a manual `sudo -u fossil fossil all sync -u -v` per secondary and confirm healthchecks.io pings resume.
 - **debug-cert-failure**: where logs live; common DNS-01 failure causes; manual fallback via `nix run`.
 - **debug-sync-failure**: inspect `journalctl -u fossil-sync`; manual `fossil all sync -u -v`; check `fossil remote-url`; fix authentication.
 
@@ -474,7 +486,7 @@ The v1 implementation is complete when:
 1. `nix flake check` evaluates cleanly (allowing for `*-hardware.nix` throw-placeholders on hosts not yet provisioned).
 2. Per-target eval succeeds for every provisioned host.
 3. `nixos-anywhere` bootstraps a fresh host from zero in one invocation (plus the secret-rekey + follow-up rebuild).
-4. The canonical and at least one secondary are deployed; sync timer succeeds; changes made on either propagate within ~5 min.
+4. The canonical and at least one secondary are deployed; sync timer succeeds; a canonical-originated write reaches the secondary within ~5 min (one timer tick). With both secondaries deployed, a secondary-originated write reaches the other secondary within ~10 min (two timer ticks).
 5. TLS certs are issued for both deployed hosts; HTTPS to each host returns a valid fossil page.
 6. SSH works via both public and Tailscale paths.
 7. The breaking-glass console password unlocks tmk's account on the browser console.
