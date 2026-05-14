@@ -303,3 +303,18 @@
 - **Disposition**: fixed
 - **Action**: promote-secondary runbook step 3 now explicitly forbids changing `networking.hostName` during promotion, with an inline explanation of the autoUpgrade binding: `system.autoUpgrade.flake` is derived from `config.networking.hostName`, so renaming `secondary-1` → `canonical` would make the host pull the wrong flake output on the next weekly upgrade. The role change in `services.fossilServer.role` (`secondary` → `canonical`) is what actually makes the host the new canonical; hostname stays stable.
 - **Commit**: `fd73e72`
+
+## Round 8 — Findings
+
+**Verdict**: approve
+**Summary**: Fresh pass over docs/superpowers/plans/2026-05-14-fossil-server-cluster.md found no remaining material findings. The recent fixes appear internally consistent; only minor nits remain, such as duplicate Step 3 labels in final verification, which do not affect implementation.
+
+(no findings)
+
+## Converged — 2026-05-15
+
+**Reason**: Eight rounds of adversarial review by codex. Round 1 caught four architecture-level concerns; rounds 2-7 each surfaced 2-4 implementation-level concerns and occasional regressions from previous fixes; round 8 returned `approve` with zero findings — natural convergence. Total 21 substantive findings across 7 rounds plus the round-8 empty close, all resolved as `fixed`. The mentioned cosmetic nit (duplicate Step 3 labels in Task 35) was addressed before closing. Trajectory: 4 → 4 → 3 → 3 → 3 → 2 → 2 → 0.
+
+**Citation check**: 2 citations verified, 0 deviations. (1) `~/dev/playground/nixos-fossil/configuration.nix:241-274` — verified the `kernel.sysctl = { ... };` block spans those lines. (2) `~/dev/playground/fossil-mirror/src/main.c:2976` — verified the exact text `allowRepoList = find_option("repolist",0,0)!=0;`, confirming `--repolist` is a boolean flag (third arg `0` means no value).
+
+**Final verdict**: approve (forced).

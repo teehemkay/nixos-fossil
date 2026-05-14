@@ -2920,12 +2920,12 @@ If any of these fail with a real error (e.g., "attribute 'cloudflare-dns' missin
 
 Note: agenix `.age` files must *exist* (as on-disk paths) during eval because Nix forces path literals when building the derivation. They do NOT need real encrypted *content* — agenix only reads content at activation time. Task 3 committed zero-byte placeholders, which is exactly what eval needs.
 
-- [ ] **Step 3: Run shellcheck on all scripts**
+- [ ] **Step 4: Run shellcheck on all scripts**
 
 Run: `nix run nixpkgs#shellcheck -- bin/new-repo.sh bin/smoke-test.sh`
 Expected: no errors.
 
-- [ ] **Step 4: Final commit (if any)**
+- [ ] **Step 5: Final commit (if any)**
 
 If anything broke during this verification, fix it and commit. Otherwise nothing to commit.
 
