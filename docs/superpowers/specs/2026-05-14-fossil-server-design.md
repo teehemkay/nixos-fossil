@@ -54,7 +54,9 @@ Subdomain `fossil.exidia.com` is delegated from Hover (registrar) to Cloudflare 
 
 ### Per-host filesystem layout
 
-- `/var/lib/fossil/museum/` — repolist directory, holds N `.fossil` files. Owned by the `fossil` system user (mode `0750`).
+- `/var/lib/fossil/` — home of the `fossil` system user (`createHome = true`). Holds:
+  - `museum/` — repolist directory; N `.fossil` files; mode `0750`.
+  - `.fossil` — fossil's per-user global config (the "all repositories" list lives here). Created on first `fossil all add`. This file's location is `$HOME/.fossil` by convention, which is why the user's home must be `/var/lib/fossil`.
 - `/var/lib/acme/<domain>/` — `security.acme`-managed cert files; group-readable by `fossil`.
 
 ### Repo URLs
@@ -232,29 +234,31 @@ fossil-sync.timer (systemd, OnCalendar=*:0/5)
 
 Fossil's `all` list is per-user, not auto-discovered. Fossil users are *per-repository* (stored in each repo's SQLite), so a freshly `init`'d repo has no `syncuser` even though the cluster-wide password is in `fossil-sync.age`. The provisioning flow must create the per-repo sync user on canonical *before* any secondary clones the repo. The `bin/new-repo.sh <name>` helper performs the full flow across the cluster via SSH:
 
+All `sudo` calls below use `-iu fossil` (login-style) rather than plain `-u fossil`. The `-i` flag is load-bearing: it sets `$HOME` to the fossil user's home (`/var/lib/fossil`), which is where fossil reads/writes the per-user `~/.fossil` global config holding the "all repositories" list. With plain `-u`, `$HOME` would be inherited from the caller and `fossil all add` would write to the wrong place. (The systemd `fossil-sync.service` doesn't need this trick — `User=fossil` already sets `$HOME` from the passwd entry.)
+
 ```bash
 # On canonical:
-sudo -u fossil fossil init /var/lib/fossil/museum/<name>.fossil
+sudo -iu fossil fossil init /var/lib/fossil/museum/<name>.fossil
 # Create the sync user inside the new repo and grant sync capabilities.
 # Capability string "v" = Developer macro (Check-in, Check-out, Clone,
 # Hyperlinks, Read/Write ticket, etc.) — covers everything fossil sync needs.
 # Verify the exact capability bits against fossil's `user capabilities` docs
 # during implementation; tighten if "v" turns out to grant more than required.
-sudo -u fossil fossil user new syncuser "" "$PASS" -R /var/lib/fossil/museum/<name>.fossil
-sudo -u fossil fossil user capabilities syncuser v -R /var/lib/fossil/museum/<name>.fossil
-sudo -u fossil fossil all add /var/lib/fossil/museum/<name>.fossil
+sudo -iu fossil fossil user new syncuser "" "$PASS" -R /var/lib/fossil/museum/<name>.fossil
+sudo -iu fossil fossil user capabilities syncuser v -R /var/lib/fossil/museum/<name>.fossil
+sudo -iu fossil fossil all add /var/lib/fossil/museum/<name>.fossil
 
 # On each secondary (only after canonical's syncuser is in place):
-sudo -u fossil fossil clone https://syncuser:$PASS@fossil.exidia.com/<name> \
+sudo -iu fossil fossil clone https://syncuser:$PASS@fossil.exidia.com/<name> \
   /var/lib/fossil/museum/<name>.fossil
-sudo -u fossil fossil remote-url -R /var/lib/fossil/museum/<name>.fossil \
+sudo -iu fossil fossil remote-url -R /var/lib/fossil/museum/<name>.fossil \
   https://syncuser:$PASS@fossil.exidia.com/<name>
-sudo -u fossil fossil all add /var/lib/fossil/museum/<name>.fossil
+sudo -iu fossil fossil all add /var/lib/fossil/museum/<name>.fossil
 ```
 
 The password is read from the agenix-decrypted file on each host during the SSH command. The script itself never sees the plaintext.
 
-**Verification**: before exiting, `bin/new-repo.sh` runs `sudo -u fossil fossil all sync -u` on each secondary and asserts a successful sync against the new repo. A failure here typically means the canonical-side `syncuser` step was skipped or the capability string is too narrow.
+**Verification**: before exiting, `bin/new-repo.sh` runs `sudo -iu fossil fossil all sync -u` on each secondary and asserts a successful sync against the new repo. A failure here typically means the canonical-side `syncuser` step was skipped, the capability string is too narrow, or the fossil user's home is not where the script expects.
 
 ## 5. Hardening & Operations
 
@@ -286,7 +290,7 @@ services.openssh = {
 
 - **root** — no password set. Login impossible via SSH (prohibit-password) or console (no password).
 - **tmk** — `isNormalUser`, member of `wheel`, SSH key auth. `hashedPasswordFile = config.age.secrets.tmk-password.path` for breaking-glass console login only (SSH password auth is off).
-- **fossil** — system user, no shell, no login, no password. Owns `/var/lib/fossil/`.
+- **fossil** — system user, no shell, no login, no password. Owns `/var/lib/fossil/`. Critically, `users.users.fossil.home = "/var/lib/fossil"; createHome = true;` — fossil's per-user state (the "all repositories" list at `$HOME/.fossil`) lives here and *must* be writable by the user. Without an explicit home, NixOS would default a system user to `/var/empty`, breaking `fossil all` invocations silently.
 
 ```nix
 security.sudo.wheelNeedsPassword = false;

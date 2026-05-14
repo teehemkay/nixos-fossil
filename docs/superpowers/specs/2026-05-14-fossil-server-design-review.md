@@ -95,3 +95,15 @@
 - **Disposition**: fixed
 - **Action**: §4's canonical-side block now uses `fossil user new syncuser "" "$PASS" -R ...` (empty contact, inline password), eliminating the prompts. The separate `user password` call was dropped since `user new` now sets it. The standalone `user capabilities syncuser v` call remains. Verified the prompt behavior against fossil's `src/user.c` (`prompt_user` / `prompt_for_password` fire when argv positions are absent).
 - **Commit**: `845c974`
+
+## Round 4 — Findings
+
+**Verdict**: needs-attention
+**Summary**: Fresh-eyes review found one material gap in the updated design. The prior provisioning fixes are coherent, but the `fossil all` design still depends on writable per-user global state that the spec does not provide for the `fossil` system user.
+
+### Finding 1 — `fossil all` needs a writable home/global config for the `fossil` user
+- **File**: `docs/superpowers/specs/2026-05-14-fossil-server-design.md`
+- **Lines**: `205-209`
+- **Confidence**: `0.9`
+- **Body**: The sync timer and new-repo flow rely on `sudo -u fossil fossil all ...`, but Fossil records the `all` repository list in the invoking user's `~/.fossil` global config. The spec only says the `fossil` system user has no shell/login/password and owns `/var/lib/fossil`; it does not assign a writable home or `FOSSIL_HOME`. On NixOS, a system user without an explicit home may not have a usable writable home for this state, so `fossil all add` during provisioning and `fossil all sync -u` from the timer can fail or track repos somewhere unintended. This is load-bearing because replication depends on the `all` list.
+- **Recommendation**: Specify the `fossil` user's home/global config location explicitly, e.g. set `users.users.fossil.home = "/var/lib/fossil"` with appropriate ownership, or set `FOSSIL_HOME`/equivalent in the systemd unit and provisioning SSH commands. Then document that `fossil all add/list/sync` are always run with that same state location and verify it in `bin/new-repo.sh`.
