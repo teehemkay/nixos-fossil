@@ -490,17 +490,6 @@ in {
       description = "DNS name fossil serves. ACME requests a cert for this.";
     };
 
-    canonicalUrl = lib.mkOption {
-      type = lib.types.nullOr lib.types.str;
-      default = null;
-      example = "https://fossil.exidia.com";
-      description = ''
-        Base URL of the canonical server. Required when role = "secondary";
-        ignored when role = "canonical". Used in the sync timer's
-        documentation and verification output.
-      '';
-    };
-
     repoDir = lib.mkOption {
       type = lib.types.path;
       default = "/var/lib/fossil/museum";
@@ -911,7 +900,6 @@ git commit -m "feat: hosts/canonical-hardware.nix placeholder (throws until prov
     enable = true;
     role = "secondary";
     domain = "s1.fossil.exidia.com";
-    canonicalUrl = "https://fossil.exidia.com";
     syncCredentialFile = config.age.secrets.fossil-sync.path;
     healthcheckUrlFile = config.age.secrets."healthchecks-secondary-1".path;
   };
@@ -997,7 +985,6 @@ Same shape as `secondary-1.nix`. Note the DigitalOcean-specific disk path overri
     enable = true;
     role = "secondary";
     domain = "s2.fossil.exidia.com";
-    canonicalUrl = "https://fossil.exidia.com";
     syncCredentialFile = config.age.secrets.fossil-sync.path;
     healthcheckUrlFile = config.age.secrets."healthchecks-secondary-2".path;
   };
@@ -1193,6 +1180,76 @@ If they fail for any *other* reason (e.g. "infinite recursion", "attribute not f
 
 Nothing to commit — this is verification.
 
+### Task 21b: Add a fixture-hardware module and three eval-test flake outputs
+
+**Files:**
+- Create: `hosts/_fixture-hardware.nix`
+- Modify: `flake.nix`
+
+The real `hosts/<name>-hardware.nix` files throw on every evaluation, which guards against accidental deployment of un-provisioned hosts but also masks any wiring errors below the throw. To verify that the *rest* of each host's wiring evaluates cleanly — module options, agenix paths, fossil-server service definition, secondary sync timer, etc. — we provide a tiny non-throwing fixture and three additional flake outputs that swap it in.
+
+These outputs are for *pre-deploy verification only*. They share the host's everything except hardware-config. The real `<host>` and `<host>-bootstrap` outputs still throw on hardware as designed.
+
+- [ ] **Step 1: Write hosts/_fixture-hardware.nix**
+
+```nix
+# Test fixture — provides the minimum NixOS needs for a host config to
+# evaluate without performing a real hardware scan. Not for deployment.
+{ lib, ... }:
+{
+  nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
+  # Disko declares the filesystem layout; we only need to satisfy the
+  # boot loader and any imports that look at boot.initrd here.
+  boot.initrd.availableKernelModules = [ ];
+  boot.kernelModules = [ ];
+  boot.extraModulePackages = [ ];
+}
+```
+
+- [ ] **Step 2: Add `<host>-eval-test` outputs to flake.nix**
+
+Add to `flake.nix`'s `let ... in` block (next to `mkHost` / `mkHostBootstrap`):
+
+```nix
+      # Helper: build an eval-test variant of a host. Imports the host
+      # config but swaps the throwing hardware-config for a fixture.
+      # Only for verifying that module wiring evaluates; NOT deployable.
+      mkHostEvalTest = name: nixpkgs.lib.nixosSystem {
+        inherit system;
+        specialArgs = { inherit inputs; };
+        modules = [
+          disko.nixosModules.disko
+          ./hosts/${name}.nix
+          # Replace the throwing hardware-config by importing the fixture
+          # AFTER the host config; module merging means the throwing
+          # module is still imported but evaluating its file is what
+          # throws — so we use disabledModules to drop it entirely.
+          { disabledModules = [ ./hosts/${name}-hardware.nix ]; }
+          ./hosts/_fixture-hardware.nix
+        ];
+      };
+```
+
+Then in the `nixosConfigurations` attrset, add:
+
+```nix
+        canonical-eval-test    = mkHostEvalTest "canonical";
+        secondary-1-eval-test  = mkHostEvalTest "secondary-1";
+        secondary-2-eval-test  = mkHostEvalTest "secondary-2";
+```
+
+- [ ] **Step 3: Verify the eval-test outputs parse**
+
+Run: `nix flake show 2>&1 | head -40`
+Expected: lists all 9 nixosConfigurations (3 full + 3 bootstrap + 3 eval-test). No parse errors.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add hosts/_fixture-hardware.nix flake.nix
+git commit -m "feat: fixture-hardware + <host>-eval-test outputs for pre-deploy eval"
+```
+
 ### Task 22: Generate flake.lock
 
 **Files:**
@@ -1246,6 +1303,19 @@ if [[ $# -ne 1 ]]; then
 fi
 
 REPO="$1"
+
+# Validate the repo name before any SSH work. We use $REPO as both a
+# filesystem basename (/var/lib/fossil/museum/$REPO.fossil) and a URL
+# path component (https://.../$REPO). Allowed: letters, digits,
+# underscore, hyphen. Must start with a letter or digit. No dots
+# (fossil treats `.fossil` extension specially), no slashes, no `..`,
+# no whitespace.
+if ! [[ "$REPO" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]]; then
+  echo "FATAL: repo name '$REPO' is invalid." >&2
+  echo "Allowed: ^[A-Za-z0-9][A-Za-z0-9_-]*\$" >&2
+  exit 2
+fi
+
 CANONICAL="fossil.exidia.com"
 SECONDARIES=("s1.fossil.exidia.com" "s2.fossil.exidia.com")
 REPO_DIR="/var/lib/fossil/museum"
@@ -1383,7 +1453,7 @@ echo "Smoke-testing https://$HOST/"
 
 # 1. HTTPS GET /
 status=$(curl -sk -o /dev/null -w '%{http_code}' "https://$HOST/" || true)
-if [[ "$status" =~ ^2|3 ]]; then
+if [[ "$status" =~ ^[23][0-9][0-9]$ ]]; then
   pass "GET / returned $status"
 else
   fail "GET / returned $status (expected 2xx or 3xx)"
@@ -2720,7 +2790,7 @@ git commit -m "docs: runbooks/debug-sync-failure.org"
 Run: `nix flake check 2>&1 | tail -30`
 Expected: hardware-config placeholder throw(s); no other errors. (Per-target eval is the way to confirm each output independently — flake check halts at the first error.)
 
-- [ ] **Step 2: Per-target eval for all six outputs**
+- [ ] **Step 2: Per-target eval for the 6 throwing outputs (sanity)**
 
 ```bash
 for target in canonical canonical-bootstrap secondary-1 secondary-1-bootstrap secondary-2 secondary-2-bootstrap; do
@@ -2730,7 +2800,23 @@ for target in canonical canonical-bootstrap secondary-1 secondary-1-bootstrap se
 done
 ```
 
-Expected: every target throws "hosts/<name>-hardware.nix is a placeholder". No other errors (no infinite recursion, no missing options, no missing secret-file references — those would indicate real bugs).
+Expected: every target throws "hosts/<name>-hardware.nix is a placeholder". This confirms the throw guard is in place. It does NOT verify the rest of the module wiring — that's the eval-test outputs' job (step 3).
+
+- [ ] **Step 3: Per-target eval for the 3 eval-test outputs (real wiring verification)**
+
+```bash
+for target in canonical-eval-test secondary-1-eval-test secondary-2-eval-test; do
+  echo "=== $target ==="
+  nix eval ".#nixosConfigurations.$target.config.system.build.toplevel.drvPath" --raw 2>&1 | tail -3
+  echo ""
+done
+```
+
+Expected: each prints a `/nix/store/...-nixos-system-...drv` path. No throws, no errors. This is the load-bearing verification: it forces evaluation of every module option, every `config.age.secrets.X.path` reference, the fossil-server service definition, and the sync timer.
+
+If any of these fail with a real error (e.g., "attribute 'cloudflare-dns' missing", "infinite recursion at ...", "the option services.fossilServer.X has no default"), that's a real wiring bug — investigate before proceeding.
+
+Note: agenix `.age` files don't need to actually exist for evaluation — agenix's NixOS module only reads them at activation time. Evaluation forces the *option references* but not the file contents.
 
 - [ ] **Step 3: Run shellcheck on all scripts**
 
@@ -2786,10 +2872,12 @@ Items 3-7 are validated by following the runbooks in `docs/setup.org`. The plan'
 
 ## Definition of Done
 
-- [ ] All 37 tasks complete.
+- [ ] All 38 tasks complete (incl. Task 21b).
 - [ ] `nix flake check` produces only the expected hardware-config throws.
-- [ ] Per-target eval succeeds for all 6 nixosConfigurations.
-- [ ] `bin/new-repo.sh` and `bin/smoke-test.sh` shellcheck-clean.
-- [ ] All 8 documentation files exist and follow the §7 standard.
+- [ ] Per-target eval for the 6 throwing outputs (`<host>` + `<host>-bootstrap`) throws as expected.
+- [ ] Per-target eval for the 3 eval-test outputs (`<host>-eval-test`) succeeds — no real wiring errors.
+- [ ] `bin/new-repo.sh` validates its repo-name argument and is shellcheck-clean.
+- [ ] `bin/smoke-test.sh` shellcheck-clean.
+- [ ] All 10 documentation files exist (README + 4 top-level + 5 runbooks) and follow the §7 standard.
 - [ ] All work committed and pushed to `github:teehemkay/nixos-fossil`.
 - [ ] tmk has the green light to start the deploy procedure in `docs/setup.org`.
