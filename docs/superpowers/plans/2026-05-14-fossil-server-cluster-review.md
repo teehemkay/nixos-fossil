@@ -241,3 +241,34 @@
 - **Disposition**: fixed
 - **Action**: Removed `services.fossilServer.syncCredentialFile` from Task 10's options block (replaced with an explanatory NOTE comment pointing at the actual consumers: `bin/new-repo.sh` and the rotation runbook, both of which read `/run/agenix/fossil-sync` on the host directly). Stripped the `syncCredentialFile = ...` assignment from Tasks 15, 17, 18 (canonical, secondary-1, secondary-2) and from the promote-secondary runbook's example block. Removed the row from the reference.org options table.
 - **Commit**: `678dfcf`
+
+## Round 6 — Findings
+
+**Verdict**: needs-attention
+**Summary**: Fresh pass found two material plan gaps. One recent zero-byte-placeholder fix is not consistently reflected in the generated secrets comments, and the host bring-up runbook omits committing generated hardware configs before relying on GitHub-based deployments/upgrades.
+
+### Finding 1 — High: generated hardware configs are not committed or pushed after nixos-anywhere
+- **File**: `docs/superpowers/plans/2026-05-14-fossil-server-cluster.md`
+- **Lines**: `1822-1863`
+- **Confidence**: `0.91`
+- **Body**: The add-host flow generates `./hosts/<hostname>-hardware.nix` during `nixos-anywhere`, but the subsequent commit step only stages `secrets/`. That leaves the real hardware config uncommitted while GitHub still has the throwing placeholder. The immediate local `nixos-rebuild switch` may work from the same checkout, but `system.autoUpgrade` points at `github:teehemkay/nixos-fossil#${host}`, and any later rebuild from a clean checkout will evaluate the placeholder and fail.
+- **Recommendation**: After the bootstrap install generates the hardware file, commit and push both the updated `hosts/<hostname>-hardware.nix` and the secret rekey changes before promoting or before considering the host operational. The runbook should explicitly stage `hosts/<hostname>-hardware.nix` along with `secrets/`.
+
+### Finding 2 — Medium: zero-byte placeholder workaround is missing from the generated secrets.nix guidance
+- **File**: `docs/superpowers/plans/2026-05-14-fossil-server-cluster.md`
+- **Lines**: `96-149`
+- **Confidence**: `0.88`
+- **Body**: Task 26 correctly says first encryption must remove each zero-byte `.age` placeholder before running `agenix -e`, but Task 3 still writes comments telling the operator to run plain `agenix -e <name>.age`, and the surrounding prose says setup's `agenix -e` calls overwrite the placeholders. Following the generated `secrets/secrets.nix` comments instead of setup.org recreates the Round 4 failure: agenix tries to decrypt a 0-byte file and errors before opening the editor.
+- **Recommendation**: Update the Task 3 comments/prose to match the actual first-encryption workflow, e.g. `rm secrets/<name>.age && agenix -e secrets/<name>.age` for initial population, and reserve plain `agenix -e` for later rotations once the file contains valid age payload.
+
+## Round 6 — Addressed
+
+### Finding 1 — High: generated hardware configs are not committed or pushed after nixos-anywhere
+- **Disposition**: fixed
+- **Action**: setup.org add-host step 5 now explicitly stages `hosts/<hostname>-hardware.nix` alongside `secrets/` in the commit. Added a paragraph explaining the local-vs-remote eval distinction: the immediate post-promotion `nixos-rebuild switch` reads from the laptop's working tree (so it succeeds), but `system.autoUpgrade` pulls from `github:teehemkay/nixos-fossil#<host>` on its weekly schedule, and would fail to evaluate against the still-throwing placeholder if the hardware-config never made it to the remote.
+- **Commit**: `d70c870`
+
+### Finding 2 — Medium: zero-byte placeholder workaround is missing from the generated secrets.nix guidance
+- **Disposition**: fixed
+- **Action**: Updated Task 3's `secrets/secrets.nix` header comment block to describe the `rm secrets/<name>.age && agenix -e secrets/<name>.age` form explicitly for first-time encryption, and to note that plain `agenix -e` works for later rotations (when the file is real encrypted content). Updated the surrounding prose in Task 3 step 2 to accurately describe that plain `agenix -e` won't work directly against a 0-byte placeholder — the setup.org workflow uses `rm` first.
+- **Commit**: `d70c870`
