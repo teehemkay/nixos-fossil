@@ -272,3 +272,34 @@
 - **Disposition**: fixed
 - **Action**: Updated Task 3's `secrets/secrets.nix` header comment block to describe the `rm secrets/<name>.age && agenix -e secrets/<name>.age` form explicitly for first-time encryption, and to note that plain `agenix -e` works for later rotations (when the file is real encrypted content). Updated the surrounding prose in Task 3 step 2 to accurately describe that plain `agenix -e` won't work directly against a 0-byte placeholder — the setup.org workflow uses `rm` first.
 - **Commit**: `d70c870`
+
+## Round 7 — Findings
+
+**Verdict**: needs-attention
+**Summary**: Fresh review found two material issues: one verification blocker in the generated helper script, and one failover runbook hazard caused by tying auto-upgrade target selection to networking.hostName.
+
+### Finding 1 — Medium: new-repo.sh fails its documented shellcheck verification
+- **File**: `docs/superpowers/plans/2026-05-14-fossil-server-cluster.md`
+- **Lines**: `1373-1375`
+- **Confidence**: `0.98`
+- **Body**: Task 23 expects `nix run nixpkgs#shellcheck -- bin/new-repo.sh` to pass, and Task 35 repeats that as final verification. The generated script defines top-level `REPO_DIR`, `SYNC_CRED_FILE`, and `SUDO_AS_FOSSIL` but only uses those names inside single-quoted remote heredocs, so shellcheck reports SC2034 warnings and exits non-zero. I verified this by piping the plan's script block to shellcheck; it also reports SC2029 as informational for the SSH wrapper. As written, the implementation cannot complete the plan's own shellcheck gate without editing the script or weakening the gate.
+- **Recommendation**: Remove the unused top-level variables, or actually pass them into the remote scripts as arguments/environment. Also decide whether SC2029 is intentionally accepted; if so, document/suppress it explicitly so the command exits 0.
+
+### Finding 2 — Medium: promoting a secondary can silently break future auto-upgrades if hostname is changed
+- **File**: `docs/superpowers/plans/2026-05-14-fossil-server-cluster.md`
+- **Lines**: `2364-2377`
+- **Confidence**: `0.84`
+- **Body**: The common module sets `system.autoUpgrade.flake` from `config.networking.hostName`, while the promotion runbook says changing `networking.hostName` on the promoted secondary is optional. If an operator follows that suggestion and renames `secondary-1` to `canonical`, the promoted host will start pulling `github:teehemkay/nixos-fossil#canonical` on scheduled upgrades even though the edited/deployed flake output is still `.#secondary-1`. That can put the promoted host back onto the old canonical output or evaluate the wrong hardware/secrets after failover.
+- **Recommendation**: Make promotion docs say not to change `networking.hostName` unless the flake output and autoUpgrade target are also retargeted, or add an explicit module option for the auto-upgrade flake output name instead of deriving it from `networking.hostName`.
+
+## Round 7 — Addressed
+
+### Finding 1 — Medium: new-repo.sh fails its documented shellcheck verification
+- **Disposition**: fixed
+- **Action**: Removed the three unused outer-scope variables (`REPO_DIR`, `SYNC_CRED_FILE`, `SUDO_AS_FOSSIL`) from the top of `bin/new-repo.sh` — they were copies of values that each remote heredoc redeclares locally, so shellcheck flagged SC2034 (unused). Added an explanatory comment block in their place. Added `# shellcheck disable=SC2029` above the `ssh "$host" "$@"` line in `remote()` because the local-side expansion of `"$REPO"` (passed as a positional to `bash -s`) is intentional — the heredoc body itself is single-quoted `<<'EOF'`, so it does NOT expand locally.
+- **Commit**: `fd73e72`
+
+### Finding 2 — Medium: promoting a secondary can silently break future auto-upgrades if hostname is changed
+- **Disposition**: fixed
+- **Action**: promote-secondary runbook step 3 now explicitly forbids changing `networking.hostName` during promotion, with an inline explanation of the autoUpgrade binding: `system.autoUpgrade.flake` is derived from `config.networking.hostName`, so renaming `secondary-1` → `canonical` would make the host pull the wrong flake output on the next weekly upgrade. The role change in `services.fossilServer.role` (`secondary` → `canonical`) is what actually makes the host the new canonical; hostname stays stable.
+- **Commit**: `fd73e72`
