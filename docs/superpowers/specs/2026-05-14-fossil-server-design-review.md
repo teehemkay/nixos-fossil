@@ -114,3 +114,15 @@
 - **Disposition**: fixed
 - **Action**: §5's fossil-user definition now sets `home = "/var/lib/fossil"; createHome = true;` with an explicit warning that NixOS's default would otherwise be `/var/empty`. §2's filesystem layout lists `/var/lib/fossil/.fossil` and explains why it lives there. §4's new-repo block switched all `sudo -u fossil` invocations to `sudo -iu fossil` so `$HOME` is set to the fossil user's home; an explanatory paragraph above the code block calls out that the systemd `fossil-sync.service` doesn't need `-i` because `User=fossil` already sets `$HOME` from the passwd entry. Verification command in the same section updated to match.
 - **Commit**: `2612afe`
+
+## Round 5 — Findings
+
+**Verdict**: needs-attention
+**Summary**: One material issue remains. The latest fix correctly gives the fossil user a writable home, but the chosen `sudo -iu fossil` mechanism conflicts with the spec's own non-login user design and can make repo provisioning fail before it reaches Fossil.
+
+### Finding 1 — Login-style sudo conflicts with the non-login fossil user
+- **File**: `docs/superpowers/specs/2026-05-14-fossil-server-design.md`
+- **Lines**: `237-261`
+- **Confidence**: `0.86`
+- **Body**: The updated provisioning flow requires every helper command to run as `sudo -iu fossil` so `$HOME` points at `/var/lib/fossil`, but the user definition still says `fossil` has "no shell, no login". `sudo -i` runs through the target user's login shell; if the NixOS user is implemented with a nologin shell, these commands can fail instead of executing `fossil init`, `fossil all add`, or the final verification. This is a regression introduced by the Round 4 fix: it solves the wrong `$HOME` problem by depending on login semantics that the account is explicitly not supposed to support.
+- **Recommendation**: Avoid login-style sudo for this non-login service account. Specify a non-login-safe invocation such as `sudo -H -u fossil ...` if it reliably sets HOME from passwd, or explicitly set `HOME=/var/lib/fossil`/`FOSSIL_HOME=/var/lib/fossil` in the SSH commands and verification while keeping the account's shell non-interactive. Alternatively, if `sudo -iu` is retained, the spec must require a real shell for `fossil` and explain the security tradeoff.

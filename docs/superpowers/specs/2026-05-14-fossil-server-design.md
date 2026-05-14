@@ -234,31 +234,31 @@ fossil-sync.timer (systemd, OnCalendar=*:0/5)
 
 Fossil's `all` list is per-user, not auto-discovered. Fossil users are *per-repository* (stored in each repo's SQLite), so a freshly `init`'d repo has no `syncuser` even though the cluster-wide password is in `fossil-sync.age`. The provisioning flow must create the per-repo sync user on canonical *before* any secondary clones the repo. The `bin/new-repo.sh <name>` helper performs the full flow across the cluster via SSH:
 
-All `sudo` calls below use `-iu fossil` (login-style) rather than plain `-u fossil`. The `-i` flag is load-bearing: it sets `$HOME` to the fossil user's home (`/var/lib/fossil`), which is where fossil reads/writes the per-user `~/.fossil` global config holding the "all repositories" list. With plain `-u`, `$HOME` would be inherited from the caller and `fossil all add` would write to the wrong place. (The systemd `fossil-sync.service` doesn't need this trick — `User=fossil` already sets `$HOME` from the passwd entry.)
+All `sudo` calls below use `sudo -u fossil env HOME=/var/lib/fossil <cmd>` rather than `sudo -u fossil <cmd>` or `sudo -iu fossil <cmd>`. The explicit `env HOME=...` is load-bearing: fossil reads/writes the per-user `~/.fossil` global config (the "all repositories" list) at `$HOME/.fossil`. Plain `sudo -u` inherits the caller's `$HOME`, so `fossil all add` would write to the wrong path. We avoid `sudo -iu` (login-style) because the `fossil` user is intentionally non-login — it has no usable login shell, so a login-shell invocation would refuse to run. Setting `HOME` directly via `env` works regardless of the user's shell. (The systemd `fossil-sync.service` doesn't need this trick — `User=fossil` already sets `$HOME` from the passwd entry.)
 
 ```bash
 # On canonical:
-sudo -iu fossil fossil init /var/lib/fossil/museum/<name>.fossil
+sudo -u fossil env HOME=/var/lib/fossil fossil init /var/lib/fossil/museum/<name>.fossil
 # Create the sync user inside the new repo and grant sync capabilities.
 # Capability string "v" = Developer macro (Check-in, Check-out, Clone,
 # Hyperlinks, Read/Write ticket, etc.) — covers everything fossil sync needs.
 # Verify the exact capability bits against fossil's `user capabilities` docs
 # during implementation; tighten if "v" turns out to grant more than required.
-sudo -iu fossil fossil user new syncuser "" "$PASS" -R /var/lib/fossil/museum/<name>.fossil
-sudo -iu fossil fossil user capabilities syncuser v -R /var/lib/fossil/museum/<name>.fossil
-sudo -iu fossil fossil all add /var/lib/fossil/museum/<name>.fossil
+sudo -u fossil env HOME=/var/lib/fossil fossil user new syncuser "" "$PASS" -R /var/lib/fossil/museum/<name>.fossil
+sudo -u fossil env HOME=/var/lib/fossil fossil user capabilities syncuser v -R /var/lib/fossil/museum/<name>.fossil
+sudo -u fossil env HOME=/var/lib/fossil fossil all add /var/lib/fossil/museum/<name>.fossil
 
 # On each secondary (only after canonical's syncuser is in place):
-sudo -iu fossil fossil clone https://syncuser:$PASS@fossil.exidia.com/<name> \
+sudo -u fossil env HOME=/var/lib/fossil fossil clone https://syncuser:$PASS@fossil.exidia.com/<name> \
   /var/lib/fossil/museum/<name>.fossil
-sudo -iu fossil fossil remote-url -R /var/lib/fossil/museum/<name>.fossil \
+sudo -u fossil env HOME=/var/lib/fossil fossil remote-url -R /var/lib/fossil/museum/<name>.fossil \
   https://syncuser:$PASS@fossil.exidia.com/<name>
-sudo -iu fossil fossil all add /var/lib/fossil/museum/<name>.fossil
+sudo -u fossil env HOME=/var/lib/fossil fossil all add /var/lib/fossil/museum/<name>.fossil
 ```
 
 The password is read from the agenix-decrypted file on each host during the SSH command. The script itself never sees the plaintext.
 
-**Verification**: before exiting, `bin/new-repo.sh` runs `sudo -iu fossil fossil all sync -u` on each secondary and asserts a successful sync against the new repo. A failure here typically means the canonical-side `syncuser` step was skipped, the capability string is too narrow, or the fossil user's home is not where the script expects.
+**Verification**: before exiting, `bin/new-repo.sh` runs `sudo -u fossil env HOME=/var/lib/fossil fossil all sync -u` on each secondary and asserts a successful sync against the new repo. A failure here typically means the canonical-side `syncuser` step was skipped, the capability string is too narrow, or the fossil user's home is not where the script expects.
 
 ## 5. Hardening & Operations
 
