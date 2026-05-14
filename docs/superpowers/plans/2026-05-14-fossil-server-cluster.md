@@ -4,7 +4,7 @@
 
 **Goal:** Build a three-host NixOS fossil-server cluster (one canonical + two secondaries) that hosts personal fossil repositories with native TLS, ACME via Cloudflare DNS-01, agenix-managed secrets, Tailscale, and automatic replication via systemd timers.
 
-**Architecture:** Each host runs the same custom `services.fossilServer` NixOS module, parameterized by a `role` (canonical | secondary) and (for secondaries) a `canonicalUrl`. Fossil serves TLS natively on :443. Secondaries pull from canonical every 5 minutes via `fossil all sync -u`. Secrets live in the repo encrypted with agenix; each host's SSH host key decrypts only the secrets it's authorized for. A bootstrap flake output per host (no agenix references) allows first install before host keys exist.
+**Architecture:** Each host runs the same custom `services.fossilServer` NixOS module, parameterized by a `role` (canonical | secondary). Fossil serves TLS natively on :443. Secondaries pull from canonical every 5 minutes via `fossil all sync -u` — the canonical's URL is stored *per-repo* in each secondary's repo file (set once by `bin/new-repo.sh`), not in the module config. Secrets live in the repo encrypted with agenix; each host's SSH host key decrypts only the secrets it's authorized for. A bootstrap flake output per host (no agenix references) allows first install before host keys exist.
 
 **Tech Stack:** NixOS (nixpkgs unstable), nix flakes, disko, agenix, nixos-anywhere, Tailscale, Fossil SCM (native TLS), Let's Encrypt via NixOS `security.acme` Cloudflare DNS-01, systemd timers, healthchecks.io.
 
@@ -88,23 +88,35 @@ git commit -m "chore: add .gitignore for nix build artifacts"
 ```nix
 # agenix recipient map: which keys decrypt which secrets.
 #
-# Add each host's SSH host pubkey (from /etc/ssh/ssh_host_ed25519_key.pub
-# after the bootstrap install) AND the admin (tmk's laptop) age public key.
+# Each host's recipient is represented as a LIST that's empty on first
+# setup and contains the host's `ssh_host_ed25519_key.pub` once the
+# bootstrap install has produced one. Lists let us concatenate without
+# inserting placeholder strings into publicKeys (which would break agenix).
 #
-# Run `agenix --rekey` after editing this file.
+# Bootstrap workflow:
+#   1. Initial state: only `tmk` (admin key) can encrypt/decrypt anything.
+#      All host lists below are [].
+#   2. Run `agenix -e <name>.age` for each secret you populate before the
+#      first deploy (cloudflare-dns, fossil-sync, tmk-password). Only the
+#      admin key encrypts them at this stage.
+#   3. After each host's bootstrap install, capture its host pubkey from
+#      /etc/ssh/ssh_host_ed25519_key.pub. Set the corresponding list
+#      below to [ "ssh-ed25519 AAAA... root@<host>" ]. Run `agenix --rekey`
+#      to re-encrypt every affected secret so the new host can read it.
 let
-  # Admin: tmk's laptop. Generate with `age-keygen` and keep the private key
-  # in 1Password. Replace this placeholder with the real public key.
+  # Admin: tmk's laptop. Generate with `age-keygen` and keep the private
+  # key in 1Password. Replace this placeholder with the real public key
+  # BEFORE first encryption.
   tmk = "age1placeholder-replace-with-tmk-laptop-age-pubkey";
 
-  # Host SSH host pubkeys: filled in AFTER each host's bootstrap install.
-  # Use the format from `ssh-keyscan` or read directly from the host.
-  canonical    = "ssh-ed25519 AAAA-placeholder-canonical-host-pubkey";
-  secondary-1  = "ssh-ed25519 AAAA-placeholder-secondary-1-host-pubkey";
-  secondary-2  = "ssh-ed25519 AAAA-placeholder-secondary-2-host-pubkey";
+  # Host SSH host pubkeys, as lists. Empty until each host is provisioned.
+  # After provisioning, set to [ "ssh-ed25519 AAAA... root@<host>" ] then
+  # run `agenix --rekey`.
+  canonicalHost   = [ ];  # e.g. [ "ssh-ed25519 AAAA... root@canonical" ]
+  secondary1Host  = [ ];
+  secondary2Host  = [ ];
 
-  allHosts     = [ canonical secondary-1 secondary-2 ];
-  secondaries  = [ secondary-1 secondary-2 ];
+  allHosts = canonicalHost ++ secondary1Host ++ secondary2Host;
 in
 {
   # Cloudflare DNS-01 API token: every host's ACME service reads it.
@@ -118,13 +130,13 @@ in
   "tmk-password.age".publicKeys = [ tmk ] ++ allHosts;
 
   # Tailscale auth keys: one per host, only that host decrypts.
-  "tailscale-authkey-canonical.age".publicKeys    = [ tmk canonical ];
-  "tailscale-authkey-secondary-1.age".publicKeys  = [ tmk secondary-1 ];
-  "tailscale-authkey-secondary-2.age".publicKeys  = [ tmk secondary-2 ];
+  "tailscale-authkey-canonical.age".publicKeys    = [ tmk ] ++ canonicalHost;
+  "tailscale-authkey-secondary-1.age".publicKeys  = [ tmk ] ++ secondary1Host;
+  "tailscale-authkey-secondary-2.age".publicKeys  = [ tmk ] ++ secondary2Host;
 
   # healthchecks.io ping URLs: only secondaries need them.
-  "healthchecks-secondary-1.age".publicKeys = [ tmk secondary-1 ];
-  "healthchecks-secondary-2.age".publicKeys = [ tmk secondary-2 ];
+  "healthchecks-secondary-1.age".publicKeys = [ tmk ] ++ secondary1Host;
+  "healthchecks-secondary-2.age".publicKeys = [ tmk ] ++ secondary2Host;
 }
 ```
 
@@ -1451,22 +1463,26 @@ fail() { printf "❌  %s\n" "$*"; FAIL=1; }
 
 echo "Smoke-testing https://$HOST/"
 
-# 1. HTTPS GET /
-status=$(curl -sk -o /dev/null -w '%{http_code}' "https://$HOST/" || true)
+# 1. HTTPS GET / — `-fsS` performs TLS cert validation (trust chain +
+# hostname match) and fails on >=400. No `-k`: a self-signed, expired,
+# or wrong-hostname cert would fail this check.
+status=$(curl -fsS -o /dev/null -w '%{http_code}' "https://$HOST/" 2>/dev/null || echo "curl-failed")
 if [[ "$status" =~ ^[23][0-9][0-9]$ ]]; then
-  pass "GET / returned $status"
+  pass "GET / returned $status (TLS validation passed)"
 else
-  fail "GET / returned $status (expected 2xx or 3xx)"
+  fail "GET / failed: $status (TLS validation may have failed; try \`curl -v https://$HOST/\` to see why)"
 fi
 
-# 2. TLS cert validity
-expiry=$(echo | openssl s_client -servername "$HOST" -connect "$HOST:443" 2>/dev/null \
-  | openssl x509 -noout -enddate 2>/dev/null \
-  | cut -d= -f2 || true)
-if [[ -n "$expiry" ]]; then
-  pass "TLS cert valid until: $expiry"
+# 2. TLS cert not-expired (explicit check). `s_client < /dev/null` plus
+# `-checkend 0` exits non-zero if the cert is expired right now.
+if echo | openssl s_client -servername "$HOST" -connect "$HOST:443" 2>/dev/null \
+    | openssl x509 -noout -checkend 0 >/dev/null 2>&1; then
+  expiry=$(echo | openssl s_client -servername "$HOST" -connect "$HOST:443" 2>/dev/null \
+    | openssl x509 -noout -enddate 2>/dev/null \
+    | cut -d= -f2)
+  pass "TLS cert not expired (until: $expiry)"
 else
-  fail "could not extract TLS cert end date"
+  fail "TLS cert is expired or unreachable"
 fi
 
 # 3. Tailscale presence (best-effort; skip if tailscale CLI unavailable locally)
@@ -1635,7 +1651,9 @@ In Cloudflare's dashboard:
 
 *** 3. Encrypt cloudflare-dns.age
 
-The =security.acme= module reads this as an env file. Format:
+The =security.acme= module reads this as an env file. Format (one line,
+no quotes around the value, no trailing newline if your editor lets you
+control that):
 
 #+begin_src text
 CLOUDFLARE_DNS_API_TOKEN=<paste-the-token-here>
@@ -1645,11 +1663,13 @@ Encrypt it:
 
 #+begin_src bash
 cd ~/dev/my/nixos-fossil
-EDITOR='env CLOUDFLARE_TOKEN=<paste>' agenix -e secrets/cloudflare-dns.age
-# Inside the editor that opens, paste:
-#   CLOUDFLARE_DNS_API_TOKEN=<your-token>
-# Save and exit.
+agenix -e secrets/cloudflare-dns.age
+# Editor opens on a temp plaintext file. Type or paste the line above
+# (with your real token substituted in). Save and exit. agenix encrypts.
 #+end_src
+
+agenix uses =$EDITOR= for the temp file — set it to whatever you prefer
+(=export EDITOR=vim= etc.) before running the command.
 
 *** 4. Encrypt the fossil-sync password
 
@@ -2148,7 +2168,6 @@ shape of something — not for narrative explanations (see
 | =enable=              | bool                | =false=                       | Enable the fossil-server module.                                            |
 | =role=                | enum: =canonical= | =secondary= | (required)                  | Cluster role. Only =secondary= runs the sync timer.                          |
 | =domain=              | string              | (required)                  | DNS name for ACME + fossil =--baseurl=.                                     |
-| =canonicalUrl=        | nullable string     | =null=                        | Base URL of canonical. Required when role=secondary.                       |
 | =repoDir=             | path                | =/var/lib/fossil/museum=      | Repolist directory holding =.fossil= files.                                   |
 | =syncCredentialFile=  | path                | (required)                  | Path to agenix-decrypted file with fossil sync user password.              |
 | =syncInterval=        | string              | =*:0/5=                       | systemd OnCalendar expression for sync timer.                              |
@@ -2265,7 +2284,7 @@ services.fossilServer = {
   role = "canonical";   # was "secondary"
   domain = "fossil.exidia.com";   # was e.g. "s1.fossil.exidia.com"
   syncCredentialFile = config.age.secrets.fossil-sync.path;
-  # remove canonicalUrl + healthcheckUrlFile
+  # remove healthcheckUrlFile
 };
 #+end_src
 
