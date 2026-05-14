@@ -104,10 +104,12 @@ git commit -m "chore: add .gitignore for nix build artifacts"
 #      below to [ "ssh-ed25519 AAAA... root@<host>" ]. Run `agenix --rekey`
 #      to re-encrypt every affected secret so the new host can read it.
 let
-  # Admin: tmk's laptop. Generate with `age-keygen` and keep the private
-  # key in 1Password. Replace this placeholder with the real public key
-  # BEFORE first encryption.
-  tmk = "age1placeholder-replace-with-tmk-laptop-age-pubkey";
+  # Admin: tmk's existing SSH ed25519 public key. agenix accepts SSH
+  # ed25519 keys as age recipients and finds them at ~/.ssh/id_ed25519
+  # automatically for decryption, so no separate age-keygen or -i flag
+  # is needed. Print yours with `cat ~/.ssh/id_ed25519.pub` and paste
+  # the full line here BEFORE first encryption.
+  tmk = "ssh-ed25519 AAAA-placeholder-replace-with-tmk-laptop-ssh-ed25519-pubkey tmk@laptop";
 
   # Host SSH host pubkeys, as lists. Empty until each host is provisioned.
   # After provisioning, set to [ "ssh-ed25519 AAAA... root@<host>" ] then
@@ -185,24 +187,29 @@ git commit -m "feat: agenix recipient map skeleton + 0-byte secret placeholders"
 
 This section is for first-time setup of the whole project. Run once.
 
-** 1. Generate the agenix admin keypair
+** 1. Register your SSH key as the agenix admin recipient
 
-On your laptop:
+agenix uses your SSH ed25519 key as both the recipient (encrypts the
+secrets so you can read them) and the identity (decrypts when you edit
+or rekey). agenix finds it automatically at =~/.ssh/id_ed25519=, so
+no extra flag is needed on any =agenix= command.
+
+Print your SSH public key:
 
 #+begin_src bash
-mkdir -p ~/.config/agenix
-age-keygen -o ~/.config/agenix/admin.key
+cat ~/.ssh/id_ed25519.pub
 #+end_src
 
-Capture the *public* key from the output (lines starting with =age1...=).
-Store the private key file (=admin.key=) in 1Password as well, as a backup.
-
-Edit =secrets/secrets.nix= and replace the =tmk= placeholder string with
-the public key value.
+Edit =secrets/secrets.nix= and replace the =tmk= placeholder string
+with the full line from your =id_ed25519.pub=.
 
 #+begin_src bash
 ${EDITOR:-vim} secrets/secrets.nix
 #+end_src
+
+Back up =~/.ssh/id_ed25519= (the private half) somewhere safe — 1Password
+or equivalent. Losing it means losing decrypt access to every secret in
+the repo until you provision a new host whose key is also a recipient.
 
 ** 2. Cloudflare account + DNS-01 API token
 
@@ -1632,21 +1639,40 @@ First-time setup of the project. Run once.
 
 ** Procedure
 
-*** 1. Generate the agenix admin keypair
+*** 1. Register your SSH key as the agenix admin recipient
+
+agenix uses your SSH ed25519 key as both the *recipient* (when encrypting) and the *identity* (when decrypting). It looks for the private half at =~/.ssh/id_ed25519= by default, so no =-i= flag is needed on any =agenix= invocation in this guide.
+
+Print your SSH public key:
 
 #+begin_src bash
-mkdir -p ~/.config/agenix
-age-keygen -o ~/.config/agenix/admin.key
+cat ~/.ssh/id_ed25519.pub
 #+end_src
 
-Capture the *public* key (line starting with =age1=...).
-Store the *private* key file (=admin.key=) in 1Password as backup.
-
-Edit =secrets/secrets.nix=, replace the =tmk= placeholder string with your public key:
+Edit =secrets/secrets.nix=, replace the =tmk= placeholder string with the full line (=ssh-ed25519 AAAA... user@host=) from your =id_ed25519.pub=:
 
 #+begin_src bash
 $EDITOR secrets/secrets.nix
 #+end_src
+
+Back up =~/.ssh/id_ed25519= (private half) to 1Password or equivalent. Losing it means losing decrypt access to every secret in the repo until a host with a recipient key can be reached.
+
+*** Note on the zero-byte placeholders
+
+Steps 3-7 below each populate one of the =secrets/*.age= files. The repo
+ships these as zero-byte placeholders (committed during implementation
+so Nix path literals resolve during =nix eval=). =agenix -e <file>=
+treats any existing =<file>= as encrypted age content and tries to
+decrypt it before opening the editor — and 0-byte content is not valid
+age payload, so =agenix= would error.
+
+**Workaround: for the FIRST encryption of each secret, `rm` the
+placeholder immediately before `agenix -e`.** Once a real encrypted
+file exists, subsequent rotations use plain =agenix -e= without the
+=rm= (the file is now valid encrypted content).
+
+Each step below shows the =rm secrets/<name>.age && agenix -e secrets/<name>.age=
+form explicitly.
 
 *** 2. Cloudflare account + DNS-01 API token
 
@@ -1675,7 +1701,7 @@ Encrypt it:
 
 #+begin_src bash
 cd ~/dev/my/nixos-fossil
-agenix -e secrets/cloudflare-dns.age
+rm secrets/cloudflare-dns.age && agenix -e secrets/cloudflare-dns.age
 # Editor opens on a temp plaintext file. Type or paste the line above
 # (with your real token substituted in). Save and exit. agenix encrypts.
 #+end_src
@@ -1691,7 +1717,8 @@ Do NOT substitute =openssl rand -base64= or similar — those generate =+/= char
 
 #+begin_src bash
 pwgen -s 64 1 > /tmp/sync.pass     # alphanumeric, URL-safe; 64 chars of entropy
-agenix -e secrets/fossil-sync.age  # paste contents of /tmp/sync.pass; one line, no trailing newline
+rm secrets/fossil-sync.age && agenix -e secrets/fossil-sync.age
+# paste contents of /tmp/sync.pass; one line, no trailing newline
 rm /tmp/sync.pass
 #+end_src
 
@@ -1701,7 +1728,8 @@ Generate a yescrypt-hashed password (this is the breaking-glass console password
 
 #+begin_src bash
 mkpasswd -m yescrypt    # type a strong password; copy the entire $y$...$ hash
-agenix -e secrets/tmk-password.age   # paste the hash; one line
+rm secrets/tmk-password.age && agenix -e secrets/tmk-password.age
+# paste the hash; one line
 #+end_src
 
 *** 6. Create healthchecks.io account + 2 checks
@@ -1716,8 +1744,10 @@ At https://healthchecks.io:
 Encrypt the URLs:
 
 #+begin_src bash
-agenix -e secrets/healthchecks-secondary-1.age    # paste URL, one line
-agenix -e secrets/healthchecks-secondary-2.age    # paste URL, one line
+rm secrets/healthchecks-secondary-1.age && agenix -e secrets/healthchecks-secondary-1.age
+# paste URL, one line
+rm secrets/healthchecks-secondary-2.age && agenix -e secrets/healthchecks-secondary-2.age
+# paste URL, one line
 #+end_src
 
 *** 7. Generate Tailscale auth keys
@@ -1727,9 +1757,10 @@ In Tailscale admin → Keys, create three /tagged/, /one-time/, /pre-approved/, 
 Encrypt each:
 
 #+begin_src bash
-agenix -e secrets/tailscale-authkey-canonical.age     # paste auth key
-agenix -e secrets/tailscale-authkey-secondary-1.age
-agenix -e secrets/tailscale-authkey-secondary-2.age
+rm secrets/tailscale-authkey-canonical.age && agenix -e secrets/tailscale-authkey-canonical.age
+# paste auth key
+rm secrets/tailscale-authkey-secondary-1.age && agenix -e secrets/tailscale-authkey-secondary-1.age
+rm secrets/tailscale-authkey-secondary-2.age && agenix -e secrets/tailscale-authkey-secondary-2.age
 #+end_src
 
 *** 8. Push to GitHub
@@ -2528,14 +2559,29 @@ For per-host secrets (=tailscale-authkey-<host>=, =healthchecks-<host>=), redepl
 
 Generate a new token at Cloudflare → My Profile → API Tokens; revoke the old one *after* the new token is deployed and a renewal has succeeded.
 
-** fossil-sync.age — extra step required
+** fossil-sync.age — extra steps required, in order
 
 This password is embedded in every secondary's stored remote URL for every repo. Rotating just the agenix secret leaves existing repos using the old password until a manual fix.
 
-After the common procedure (steps 1-3 above), do this on *every secondary*:
+**Order matters.** After the common procedure (steps 1-3 above), do these in sequence — the canonical update MUST happen first, otherwise secondaries' new URLs would fail to authenticate against the canonical's still-old password and stop the runbook mid-procedure.
+
+*** Step A: on *canonical*, update each repo's syncuser password
 
 #+begin_src bash
-# Enumerate repos and rewrite the remote-url with the new password.
+ssh canonical bash -s <<'EOF'
+set -euo pipefail
+PASS=$(sudo cat /run/agenix/fossil-sync)
+SUDO_AS_FOSSIL=(sudo -u fossil env HOME=/var/lib/fossil)
+
+"${SUDO_AS_FOSSIL[@]}" fossil all list | while read -r repo_path; do
+  "${SUDO_AS_FOSSIL[@]}" fossil user password syncuser "$PASS" -R "$repo_path"
+done
+EOF
+#+end_src
+
+*** Step B: on *every secondary*, rewrite the remote-url and verify with a manual sync
+
+#+begin_src bash
 ssh <secondary> bash -s <<'EOF'
 set -euo pipefail
 PASS=$(sudo cat /run/agenix/fossil-sync)
@@ -2548,22 +2594,9 @@ SUDO_AS_FOSSIL=(sudo -u fossil env HOME=/var/lib/fossil)
     "https://syncuser:$PASS@fossil.exidia.com/$reponame"
 done
 
-# Verify with a manual sync
+# Verify with a manual sync — canonical's syncuser password was updated
+# in Step A, so this authenticates correctly.
 "${SUDO_AS_FOSSIL[@]}" fossil all sync -u -v
-EOF
-#+end_src
-
-Then on *canonical*, update each repo's syncuser password:
-
-#+begin_src bash
-ssh canonical bash -s <<'EOF'
-set -euo pipefail
-PASS=$(sudo cat /run/agenix/fossil-sync)
-SUDO_AS_FOSSIL=(sudo -u fossil env HOME=/var/lib/fossil)
-
-"${SUDO_AS_FOSSIL[@]}" fossil all list | while read -r repo_path; do
-  "${SUDO_AS_FOSSIL[@]}" fossil user password syncuser "$PASS" -R "$repo_path"
-done
 EOF
 #+end_src
 
