@@ -140,22 +140,34 @@ in
 }
 ```
 
-- [ ] **Step 2: Touch .gitkeep**
+- [ ] **Step 2: Touch .gitkeep and zero-byte placeholder .age files**
+
+The `.age` files don't exist yet — they get encrypted by the operator during initial bootstrap (see Task 26 → setup.org). But the host configs (Tasks 15, 17, 18) reference them via Nix path literals like `../secrets/cloudflare-dns.age`, and Nix forces those paths during eval (`.drvPath`). So if the files don't exist, our eval-test verification in Task 35 fails with "no such file" *before* the operator has any chance to encrypt them.
+
+Solution: commit zero-byte placeholder files. They satisfy Nix's path-literal resolution. agenix only reads file *content* at activation time, not at eval, so 0-byte placeholders pass eval cleanly. The operator's `agenix -e <name>.age` calls in setup.org overwrite each placeholder with the real encrypted content during deploy.
 
 ```bash
 touch secrets/.gitkeep
+touch secrets/cloudflare-dns.age \
+      secrets/fossil-sync.age \
+      secrets/tmk-password.age \
+      secrets/tailscale-authkey-canonical.age \
+      secrets/tailscale-authkey-secondary-1.age \
+      secrets/tailscale-authkey-secondary-2.age \
+      secrets/healthchecks-secondary-1.age \
+      secrets/healthchecks-secondary-2.age
 ```
 
 - [ ] **Step 3: Verify the secrets.nix is parseable Nix**
 
 Run: `nix-instantiate --eval secrets/secrets.nix --strict 2>&1 | head -20`
-Expected: prints an attribute set; no syntax errors. (The `placeholder` strings are just text values; agenix will reject them later when you actually encrypt files, but that's fine for now.)
+Expected: prints an attribute set; no syntax errors. (The `tmk` placeholder string is just a text value; agenix won't actually use it until the operator replaces it with a real age public key before the first `agenix -e` invocation.)
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add secrets/secrets.nix secrets/.gitkeep
-git commit -m "feat: agenix recipient map skeleton with placeholders"
+git add secrets/secrets.nix secrets/.gitkeep secrets/*.age
+git commit -m "feat: agenix recipient map skeleton + 0-byte secret placeholders"
 ```
 
 ### Task 4: Document the admin keypair generation
@@ -1673,11 +1685,13 @@ agenix uses =$EDITOR= for the temp file — set it to whatever you prefer
 
 *** 4. Encrypt the fossil-sync password
 
-Generate a strong random password and encrypt it:
+This password is embedded into HTTPS URLs by =bin/new-repo.sh= and the rotation runbook (=https://syncuser:$PASS@.../...=), so it MUST be URL-safe — no =@=, =:=, =/=, =%=, =?=, =#=, =+=, or whitespace. =pwgen -s= (the =-s= flag means "completely random, no human-friendly substitutions") produces alphanumeric output which is safe.
+
+Do NOT substitute =openssl rand -base64= or similar — those generate =+/= characters that break URL parsing.
 
 #+begin_src bash
-pwgen -s 64 1 > /tmp/sync.pass     # or any strong source
-agenix -e secrets/fossil-sync.age  # paste contents of /tmp/sync.pass; one line, no newline
+pwgen -s 64 1 > /tmp/sync.pass     # alphanumeric, URL-safe; 64 chars of entropy
+agenix -e secrets/fossil-sync.age  # paste contents of /tmp/sync.pass; one line, no trailing newline
 rm /tmp/sync.pass
 #+end_src
 
@@ -1781,13 +1795,22 @@ Copy the output (starts with =ssh-ed25519 AAAA...=).
 
 *** 5. Update secrets/secrets.nix + rekey
 
-Replace the relevant =<hostname> = "ssh-ed25519 AAAA-placeholder-..."= line with the captured pubkey. Then:
+In =secrets/secrets.nix=, locate the empty list for this host (one of =canonicalHost=, =secondary1Host=, =secondary2Host=) and replace =[ ]= with a one-element list containing the captured pubkey. For example, after provisioning canonical:
+
+#+begin_src nix
+# Before:
+canonicalHost = [ ];
+# After:
+canonicalHost = [ "ssh-ed25519 AAAA...captured...pubkey root@canonical" ];
+#+end_src
+
+Then re-encrypt every secret whose recipient list includes this host:
 
 #+begin_src bash
 agenix --rekey
 #+end_src
 
-This re-encrypts every secret whose recipient list includes that host. Commit:
+Commit:
 
 #+begin_src bash
 git add secrets/
@@ -2835,7 +2858,7 @@ Expected: each prints a `/nix/store/...-nixos-system-...drv` path. No throws, no
 
 If any of these fail with a real error (e.g., "attribute 'cloudflare-dns' missing", "infinite recursion at ...", "the option services.fossilServer.X has no default"), that's a real wiring bug — investigate before proceeding.
 
-Note: agenix `.age` files don't need to actually exist for evaluation — agenix's NixOS module only reads them at activation time. Evaluation forces the *option references* but not the file contents.
+Note: agenix `.age` files must *exist* (as on-disk paths) during eval because Nix forces path literals when building the derivation. They do NOT need real encrypted *content* — agenix only reads content at activation time. Task 3 committed zero-byte placeholders, which is exactly what eval needs.
 
 - [ ] **Step 3: Run shellcheck on all scripts**
 
