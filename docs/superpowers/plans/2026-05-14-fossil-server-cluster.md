@@ -1370,13 +1370,21 @@ fi
 
 CANONICAL="fossil.exidia.com"
 SECONDARIES=("s1.fossil.exidia.com" "s2.fossil.exidia.com")
-REPO_DIR="/var/lib/fossil/museum"
-SYNC_CRED_FILE="/run/agenix/fossil-sync"
-SUDO_AS_FOSSIL=(sudo -u fossil env HOME=/var/lib/fossil)
+# Per-host constants (REPO_DIR, SYNC_CRED_FILE, SUDO_AS_FOSSIL) are
+# defined inside each remote heredoc — they run on the remote host, not
+# locally. Don't hoist them up here; outer-scope copies would be unused
+# (single-quoted heredocs don't expand outer variables) and shellcheck
+# would flag them as SC2034.
 
 remote() {
   local host="$1"
   shift
+  # The remote command receives "$@" verbatim; any "$VAR" inside that
+  # argument list expands on the local shell before ssh is invoked.
+  # We intentionally rely on that for parameters like the repo name —
+  # the heredoc body itself uses 'EOF' (single-quoted) so it does NOT
+  # expand locally; only the args to bash -s expand locally.
+  # shellcheck disable=SC2029
   ssh "$host" "$@"
 }
 
@@ -2361,7 +2369,7 @@ services.fossilServer = {
 };
 #+end_src
 
-Also change =networking.hostName= if you want; not strictly required.
+**Do NOT change =networking.hostName=** during promotion. The common module derives =system.autoUpgrade.flake= from =config.networking.hostName= (=github:teehemkay/nixos-fossil#${hostName}=). If you rename =secondary-1= to =canonical=, the host will start pulling the =.#canonical= flake output from GitHub on its next weekly autoUpgrade — which is still wired up to the OLD (dead) canonical's config, with its own hardware-config, secrets, and role. Keep the hostname stable; the role change in =services.fossilServer.role= is what makes it the new canonical. The flake output name (=.#secondary-1=) remains the binding identifier.
 
 Commit + push:
 
