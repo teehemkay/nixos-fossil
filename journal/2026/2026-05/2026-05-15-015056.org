@@ -1,0 +1,120 @@
+#+TITLE: Brainstorm + adversarial-review marathon: fossil-server cluster
+#+DATE: [2026-05-15 Fri 01:50]
+#+PROJECT: nixos-fossil
+
+* Context
+
+Context: the new [[file:~/dev/my/nixos-fossil/docs/superpowers/specs/2026-05-14-fossil-server-design.md][fossil-server design spec]] + [[file:~/dev/my/nixos-fossil/docs/superpowers/plans/2026-05-14-fossil-server-cluster.md][implementation plan]] (writing-plans done, both adversarially reviewed to convergence).
+
+This repo (=~/dev/my/nixos-fossil=) was created fresh in this session — initial commit [[orgit-rev:my/nixos-fossil::cd2c31df97...][cd2c31d]] (spec), implementation plan [[orgit-rev:my/nixos-fossil::b5ac7b6047...][b5ac7b6]], plan-review converged at [[orgit-rev:my/nixos-fossil::bd2f13a749...][bd2f13a]]. Work spans brainstorming → 5 spec review rounds → plan → 8 plan review rounds. Branch =main=, working tree clean. The plan is ready for execution; tmk hasn't picked subagent-driven vs inline yet.
+
+* Project Notes
+
+** Key Decisions
+
+- Repo lives at =~/dev/my/nixos-fossil=, public on GitHub at =github:teehemkay/nixos-fossil=. Agenix-encrypted secrets are inert without each host's SSH host key, so public is genuinely safe.
+- Three-host topology = 1 canonical (=fossil.exidia.com=) + 2 secondaries (=s1.fossil.exidia.com=, =s2.fossil.exidia.com=). Per fossil-scm.org's documented self-host pattern: secondaries run =fossil all sync -u= via systemd timer against canonical; canonical doesn't sync.
+- TLS: fossil-native (no reverse proxy); NixOS =security.acme= via Cloudflare DNS-01 (subdomain =fossil.exidia.com= delegated from Hover).
+- Hardening: pragmatic-minimal — SSH key-only + sysctl block from prior attempt + auto-upgrade weekly with reboot + Tailscale alongside public SSH. Explicitly skipped: hardened kernel, OTP, stubby, fail2ban.
+- Secrets: agenix. Admin identity = tmk's existing SSH ed25519 key (auto-found by agenix), not a separate age-keygen output. Per-host SSH host keys decrypt each host's authorized secrets.
+- Monitoring: healthchecks.io heartbeat from secondaries' sync timer only. No SMTP alerts in v1.
+- Backups: deferred (replication-only). Documented gap.
+- Bootstrap chicken-egg: each host has TWO flake outputs — =<host>-bootstrap= (no agenix references) for first install, =<host>= (full config) for subsequent runs after rekey.
+- After multiple iterations, hardware-config is composed at the *flake.nix helper level* (=mkHost=, =mkHostBootstrap=, =mkHostEvalTest=), NOT imported inside each =hosts/<name>.nix=. This breaks an otherwise unresolvable import cycle for the eval-test outputs (see Technical Insights).
+
+** Conversation Excerpts
+
+#+begin_quote
+tmk (overriding my "stay slim" recommendation for fossil targets): I'm planning to also use digital ocean. So leaning towards (2). What's your take
+
+Bot: My honest take: option 2 is the right call if DigitalOcean is on the roadmap. ...
+#+end_quote
+
+Same pattern multiple times this session: tmk states a lean *and asks for analysis*. Not validation-seeking; genuinely wants a check.
+
+#+begin_quote
+tmk (correcting my topology overengineering): first option but note that the two secondary repositories are more than just read-only mirrors. All three servers support full read/write capabilities. ... https://fossil-scm.org/home/doc/trunk/www/selfhost.wiki seems to imply a canonical repository with two secondaries that stay in sync rather than a mesh of 3 peers
+#+end_quote
+
+tmk corrects with authoritative reference. Always.
+
+#+begin_quote
+tmk (after my first documentation pass was too granular at ~13 files): a bit too granular
+#+end_quote
+
+Calibration request, accepted. Slimmed to 10 files (1 README + 4 top-level + 5 runbooks).
+
+* Technical Insights
+
+** Adversarial-review trajectory tells you when you're done
+
+Two artefacts, two trajectories — both converged but very differently:
+
+- Spec: 4 → 1 → 1 → 1 → 1. Converged at round 5 with a forced close (the curve was flat but findings were still real).
+- Plan: 4 → 4 → 3 → 3 → 3 → 2 → 2 → 0. Converged at round 8 with =approve= and zero findings. The plan was bigger (~3000 lines vs spec's ~500) and codex found more.
+
+The numeric trajectory is more informative than "round N is the limit" rules. When the count starts oscillating or rising, the artefact is changing in ways that introduce new bugs (regressions). When it monotonically falls and reaches zero, the artefact has stabilized.
+
+** disabledModules can't disable a throw-only module
+
+NixOS's =disabledModules = [ ./X.nix ]= drops X from the module graph. But to determine *which* module to drop, the module system must import X (load + evaluate its top-level expression). A file whose body is just =throw "..."= fires the throw during import — *before* disabledModules can take effect.
+
+Concretely: I designed =mkHostEvalTest= to import =hosts/<name>.nix= (which imports =./<name>-hardware.nix= — a throw-only placeholder) plus =disabledModules = [ ./<name>-hardware.nix ]= plus =./_fixture-hardware.nix=. Reasoning was: "import is fine, then disabledModules removes the throwing one before evaluation." But the throw fires during import.
+
+Fix: don't put the throwing module in =imports=. Compose at a higher level. The hosts now have =imports = [ ../modules/common.nix ../modules/disko.nix ../modules/fossil-server.nix ];= and the flake.nix helpers pull in the appropriate hardware module separately:
+
+#+begin_src nix
+mkHost          = name: nixosSystem { modules = [ ./hosts/${name}.nix ./hosts/${name}-hardware.nix ]; };
+mkHostBootstrap = name: nixosSystem { modules = [ ./hosts/${name}-bootstrap.nix ./hosts/${name}-hardware.nix ]; };
+mkHostEvalTest  = name: nixosSystem { modules = [ ./hosts/${name}.nix ./hosts/_fixture-hardware.nix ]; };
+#+end_src
+
+Lesson: if you want to swap a module at composition time, the place to do it is *the place that does the composition*, not via disabledModules tricks inside the consumer.
+
+** Nix path literals are forced at derivation-build time, not eval-source time
+
+I wrote =age.secrets.cloudflare-dns.file = ../secrets/cloudflare-dns.age;=, expecting that since agenix only reads the file at activation time, the path didn't need to exist during eval. Wrong: =nix eval .#nixosConfigurations.X.config.system.build.toplevel.drvPath= forces all derivation inputs to be locatable in the store, which forces path literals to resolve (i.e., the file must exist on disk so Nix can compute its store path).
+
+Fix: ship zero-byte placeholder =.age= files in the repo. They exist on disk so path literals resolve; their *content* is irrelevant to eval; agenix only reads content at activation.
+
+Caveat I introduced and codex caught: =agenix -e= treats existing files as encrypted ciphertext and tries to decrypt before opening the editor. A 0-byte file isn't valid age payload → agenix errors. Resolution: for first-time encryption, use =rm secrets/<name>.age && agenix -e secrets/<name>.age= (deletes the placeholder so agenix treats it as fresh creation). Rotations of an already-encrypted file use plain =agenix -e=.
+
+** fossil server CLI: --repolist is boolean, repo dir is positional
+
+Verified against [[file:~/dev/playground/fossil-mirror/src/main.c][fossil source]] at line 2976:
+#+begin_src c
+allowRepoList = find_option("repolist",0,0)!=0;
+#+end_src
+
+Third argument to =find_option(name, shortname, hasArg)= is =0=, meaning the option does NOT take a value. So =fossil server --repolist <dir> [other options]= works in practice because fossil's parser absorbs =--repolist= as a boolean and treats =<dir>= as the positional REPOSITORY argument. But the canonical (and clearer) form is =fossil server [options] <dir>= with =--repolist= as a bare flag.
+
+** SSH ed25519 keys are valid age recipients AND identities
+
+agenix accepts SSH ed25519 public keys as recipients in =publicKeys = [ ... ]= AND auto-discovers the matching =~/.ssh/id_ed25519= private key as a decryption identity. No =-i= flag needed, no separate =age-keygen= step.
+
+This is much cleaner than the age-keygen approach the agenix README often shows. My initial design used =age-keygen -o ~/.config/agenix/admin.key= which would have required =agenix -i ~/.config/agenix/admin.key -e ...= for every operation. Codex caught the inconsistency in round 4.
+
+** fossil sync user is per-repository, not cluster-wide
+
+Fossil's =user= table is *per-repository* (stored in the repo's SQLite). When =fossil init bar.fossil= creates a new repo, it gets an admin user (typically the OS user) but no =syncuser=. Secondaries' =fossil clone https://syncuser:PASS@.../bar= would then 401 because =syncuser= doesn't exist in =bar.fossil=.
+
+Resolution: =bin/new-repo.sh= creates =syncuser= per repo on canonical before any secondary clones. The non-interactive form is critical:
+
+#+begin_src bash
+sudo -u fossil env HOME=/var/lib/fossil fossil user new syncuser "" "$PASS" \
+  -R /var/lib/fossil/museum/<name>.fossil
+sudo -u fossil env HOME=/var/lib/fossil fossil user capabilities syncuser v \
+  -R /var/lib/fossil/museum/<name>.fossil
+#+end_src
+
+The empty string =""= for contact-info matters: =fossil user new= prompts for ANY omitted positional arg ([[file:~/dev/playground/fossil-mirror/src/user.c][user.c]]). Single call with all positionals = non-interactive.
+
+** Sync password is URL-embedded; URL-safety is a hard constraint
+
+The sync password gets embedded into every secondary's stored remote URL (=https://syncuser:PASS@canonical/repo=) via =fossil remote-url=. URL-significant characters (=@=, =:=, =/=, =%=, =?=, =#=, =+=, whitespace) break URL parsing or get re-interpreted. =pwgen -s= generates alphanumeric output (URL-safe). =openssl rand -base64= produces =+/== — unsafe.
+
+Rotation gotcha: rotating just =fossil-sync.age= (the agenix file) doesn't update the URLs embedded in each secondary's SQLite. Rotation runbook must: (a) update canonical's =syncuser= password first, (b) then rewrite every secondary's =fossil remote-url= for every repo. Order matters: doing it the other way around breaks sync verification under =set -e=.
+
+** Hostname binds autoUpgrade target
+
+=system.autoUpgrade.flake = "github:teehemkay/nixos-fossil#${config.networking.hostName}"= ties the upgrade source to =networking.hostName=. Promotion runbook (=promote-secondary.org=) must explicitly forbid hostname changes: renaming =secondary-1= to =canonical= during promotion would make the host pull =.#canonical= (still wired up to the dead canonical's config) on the next weekly upgrade. The flake-output name (=.#secondary-1=) stays the binding identifier; the role change happens via =services.fossilServer.role=.
