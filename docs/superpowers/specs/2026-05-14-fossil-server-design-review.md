@@ -88,3 +88,10 @@
 - **Confidence**: `0.88`
 - **Body**: The revised flow now creates the per-repo `syncuser`, but `fossil user new syncuser -R ...` is still interactive because Fossil's `user new` accepts optional username, contact info, and password, and prompts for omitted fields. That means `bin/new-repo.sh` can hang or fail during unattended provisioning before it reaches the explicit password/capability steps. This also weakens the acceptance criterion that `bin/new-repo.sh` works end-to-end. Official Fossil help documents the form as `fossil user new ?USERNAME? ?CONTACT-INFO? ?PASSWORD?`.
 - **Recommendation**: Make the canonical-side command fully non-interactive, for example by supplying contact info and password directly in `fossil user new syncuser <contact-or-empty-value> "$PASS" -R ...`, then setting capabilities. If retaining a separate password command, still pass a contact value and an initial generated password or document the exact non-interactive Fossil invocation to avoid prompts.
+
+## Round 3 — Addressed
+
+### Finding 1 — New repo provisioning creates syncuser with an interactive command
+- **Disposition**: fixed
+- **Action**: §4's canonical-side block now uses `fossil user new syncuser "" "$PASS" -R ...` (empty contact, inline password), eliminating the prompts. The separate `user password` call was dropped since `user new` now sets it. The standalone `user capabilities syncuser v` call remains. Verified the prompt behavior against fossil's `src/user.c` (`prompt_user` / `prompt_for_password` fire when argv positions are absent).
+- **Commit**: `845c974`
