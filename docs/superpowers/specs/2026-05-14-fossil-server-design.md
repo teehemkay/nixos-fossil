@@ -240,8 +240,7 @@ sudo -u fossil fossil init /var/lib/fossil/museum/<name>.fossil
 # Hyperlinks, Read/Write ticket, etc.) — covers everything fossil sync needs.
 # Verify the exact capability bits against fossil's `user capabilities` docs
 # during implementation; tighten if "v" turns out to grant more than required.
-sudo -u fossil fossil user new syncuser -R /var/lib/fossil/museum/<name>.fossil
-sudo -u fossil fossil user password syncuser "$PASS" -R /var/lib/fossil/museum/<name>.fossil
+sudo -u fossil fossil user new syncuser "" "$PASS" -R /var/lib/fossil/museum/<name>.fossil
 sudo -u fossil fossil user capabilities syncuser v -R /var/lib/fossil/museum/<name>.fossil
 sudo -u fossil fossil all add /var/lib/fossil/museum/<name>.fossil
 

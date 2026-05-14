@@ -76,3 +76,15 @@
 - **Disposition**: fixed
 - **Action**: §4's new-repo block now creates the per-repo syncuser on canonical (fossil user new + password + capabilities v) before any secondary clone runs. Capability `v` (Developer macro) is the working starting point; spec calls out that exact bits should be verified and tightened during implementation. §7's `docs/setup.org` outline for "Adding a repo" explicitly mentions the syncuser step. The script gets a post-step `fossil all sync -u` assertion to surface missed-syncuser errors early.
 - **Commit**: `84f52a3`
+
+## Round 3 — Findings
+
+**Verdict**: needs-attention
+**Summary**: One material issue remains in the updated provisioning flow. The prior fixes are directionally coherent, but the new syncuser step is not yet scriptable as written.
+
+### Finding 1 — New repo provisioning creates syncuser with an interactive command
+- **File**: `docs/superpowers/specs/2026-05-14-fossil-server-design.md`
+- **Lines**: `243-244`
+- **Confidence**: `0.88`
+- **Body**: The revised flow now creates the per-repo `syncuser`, but `fossil user new syncuser -R ...` is still interactive because Fossil's `user new` accepts optional username, contact info, and password, and prompts for omitted fields. That means `bin/new-repo.sh` can hang or fail during unattended provisioning before it reaches the explicit password/capability steps. This also weakens the acceptance criterion that `bin/new-repo.sh` works end-to-end. Official Fossil help documents the form as `fossil user new ?USERNAME? ?CONTACT-INFO? ?PASSWORD?`.
+- **Recommendation**: Make the canonical-side command fully non-interactive, for example by supplying contact info and password directly in `fossil user new syncuser <contact-or-empty-value> "$PASS" -R ...`, then setting capabilities. If retaining a separate password command, still pass a contact value and an initial generated password or document the exact non-interactive Fossil invocation to avoid prompts.
