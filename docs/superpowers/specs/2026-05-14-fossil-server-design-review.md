@@ -126,3 +126,18 @@
 - **Confidence**: `0.86`
 - **Body**: The updated provisioning flow requires every helper command to run as `sudo -iu fossil` so `$HOME` points at `/var/lib/fossil`, but the user definition still says `fossil` has "no shell, no login". `sudo -i` runs through the target user's login shell; if the NixOS user is implemented with a nologin shell, these commands can fail instead of executing `fossil init`, `fossil all add`, or the final verification. This is a regression introduced by the Round 4 fix: it solves the wrong `$HOME` problem by depending on login semantics that the account is explicitly not supposed to support.
 - **Recommendation**: Avoid login-style sudo for this non-login service account. Specify a non-login-safe invocation such as `sudo -H -u fossil ...` if it reliably sets HOME from passwd, or explicitly set `HOME=/var/lib/fossil`/`FOSSIL_HOME=/var/lib/fossil` in the SSH commands and verification while keeping the account's shell non-interactive. Alternatively, if `sudo -iu` is retained, the spec must require a real shell for `fossil` and explain the security tradeoff.
+
+## Round 5 — Addressed
+
+### Finding 1 — Login-style sudo conflicts with the non-login fossil user
+- **Disposition**: fixed
+- **Action**: §4's new-repo block now uses `sudo -u fossil env HOME=/var/lib/fossil <cmd>` (explicit `env` sets HOME without invoking a shell) instead of `sudo -iu fossil <cmd>` (login-shell form, would fail against the non-login fossil user). Prefatory paragraph rewritten to explain the choice. The fossil user stays non-login.
+- **Commit**: `e763ef2`
+
+## Converged — 2026-05-14
+
+**Reason**: Five rounds of adversarial review. Round 1 surfaced four architecture-level concerns (sync convergence math, agenix bootstrap chicken-egg, overstrong TLS-key claim, rotation must touch embedded URLs) — all fixed. Rounds 2-5 each surfaced one implementability detail in the new-repo provisioning flow: missing per-repo `syncuser`, interactive `fossil user new` prompts, fossil user needing a writable HOME, and login-shell sudo conflicting with the non-login user. All five rounds resolved as `fixed`. By round 5 the findings were shell-invocation micro-details well inside plan/implementation-time territory; further rounds would surface similar-scale issues that `nixos-rebuild test` and a real provisioning rehearsal will catch faster. Stopping here at the natural value-per-round inflection rather than chasing zero findings.
+
+**Citation check**: 5 citations verified, 0 deviations.
+
+**Final verdict**: approve (forced).
