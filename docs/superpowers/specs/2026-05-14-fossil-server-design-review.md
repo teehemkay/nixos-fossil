@@ -69,3 +69,10 @@
 - **Confidence**: `0.82`
 - **Body**: The new-repo flow initializes the repository on canonical and immediately has each secondary clone `https://syncuser:$PASS@fossil.exidia.com/<name>`, but the spec never creates or grants capabilities to `syncuser` inside the newly initialized Fossil repository. Fossil users are repository-local, so a cluster-wide `fossil-sync.age` password is not enough by itself; each new repo needs the sync account/password and clone/sync privileges before the secondary clone can authenticate. The later docs outline mentions bootstrapping an admin user via web UI, but that happens after `bin/new-repo.sh` and does not establish the sync user needed for the script to work.
 - **Recommendation**: Extend `bin/new-repo.sh` and the setup docs to create/update the per-repo `syncuser` on canonical before secondary cloning, including the exact Fossil command/capabilities and verification that `fossil clone https://syncuser:...` works.
+
+## Round 2 — Addressed
+
+### Finding 1 — New repo provisioning clones with syncuser before creating that repo user
+- **Disposition**: fixed
+- **Action**: §4's new-repo block now creates the per-repo syncuser on canonical (fossil user new + password + capabilities v) before any secondary clone runs. Capability `v` (Developer macro) is the working starting point; spec calls out that exact bits should be verified and tightened during implementation. §7's `docs/setup.org` outline for "Adding a repo" explicitly mentions the syncuser step. The script gets a post-step `fossil all sync -u` assertion to surface missed-syncuser errors early.
+- **Commit**: `84f52a3`
