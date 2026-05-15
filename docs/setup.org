@@ -1,16 +1,25 @@
 #+TITLE: Setup
-#+OPTIONS: toc:2
+#+OPTIONS: toc:3
+
+This document covers all setup flows: initial bootstrap of the project, adding a new host, and adding a new fossil repo.
 
 * Initial bootstrap
 
-This section is for first-time setup of the whole project. Run once.
+First-time setup of the project. Run once.
 
-** 1. Register your SSH key as the agenix admin recipient
+** Prerequisites
 
-agenix uses your SSH ed25519 key as both the recipient (encrypts the
-secrets so you can read them) and the identity (decrypts when you edit
-or rekey). agenix finds it automatically at =~/.ssh/id_ed25519=, so
-no extra flag is needed on any =agenix= command.
+- Cloudflare account.
+- Hetzner Cloud account.
+- DigitalOcean account (only when bringing up =secondary-2=).
+- Local =age=, =agenix=, =nix=, =ssh=, =curl=, =openssl= installed.
+- This repo cloned at =~/dev/my/nixos-fossil=.
+
+** Procedure
+
+*** 1. Register your SSH key as the agenix admin recipient
+
+agenix uses your SSH ed25519 key as both the *recipient* (when encrypting) and the *identity* (when decrypting). It looks for the private half at =~/.ssh/id_ed25519= by default, so no =-i= flag is needed on any =agenix= invocation in this guide.
 
 Print your SSH public key:
 
@@ -18,21 +27,278 @@ Print your SSH public key:
 cat ~/.ssh/id_ed25519.pub
 #+end_src
 
-Edit =secrets/secrets.nix= and replace the =tmk= placeholder string
-with the full line from your =id_ed25519.pub=.
+Edit =secrets/secrets.nix=, replace the =tmk= placeholder string with the full line (=ssh-ed25519 AAAA... user@host=) from your =id_ed25519.pub=:
 
 #+begin_src bash
-${EDITOR:-vim} secrets/secrets.nix
+$EDITOR secrets/secrets.nix
 #+end_src
 
-Back up =~/.ssh/id_ed25519= (the private half) somewhere safe — 1Password
-or equivalent. Losing it means losing decrypt access to every secret in
-the repo until you provision a new host whose key is also a recipient.
+Back up =~/.ssh/id_ed25519= (private half) to 1Password or equivalent. Losing it means losing decrypt access to every secret in the repo until a host with a recipient key can be reached.
 
-** 2. Cloudflare account + DNS-01 API token
+*** Note on the zero-byte placeholders
 
-(documented in a later task)
+Steps 3-7 below each populate one of the =secrets/*.age= files. The repo
+ships these as zero-byte placeholders (committed during implementation
+so Nix path literals resolve during =nix eval=). =agenix -e <file>=
+treats any existing =<file>= as encrypted age content and tries to
+decrypt it before opening the editor — and 0-byte content is not valid
+age payload, so =agenix= would error.
 
-** 3. Delegate fossil.exidia.com to Cloudflare
+**Workaround: for the FIRST encryption of each secret, `rm` the
+placeholder immediately before `agenix -e`.** Once a real encrypted
+file exists, subsequent rotations use plain =agenix -e= without the
+=rm= (the file is now valid encrypted content).
 
-(documented in a later task)
+Each step below shows the =rm secrets/<name>.age && agenix -e secrets/<name>.age=
+form explicitly.
+
+*** 2. Cloudflare account + DNS-01 API token
+
+In Cloudflare's dashboard:
+
+1. Add the domain =exidia.com= (or use an existing zone if you already do).
+2. Create a child zone =fossil.exidia.com=:
+   - At Hover, set NS records for =fossil.exidia.com= pointing at Cloudflare's nameservers for that subdomain.
+   - Wait for delegation to propagate (=dig NS fossil.exidia.com=).
+3. Create an API token at https://dash.cloudflare.com/profile/api-tokens:
+   - Permissions: =Zone:DNS:Edit=
+   - Zone resources: include only =fossil.exidia.com=
+   - Save the generated token securely.
+
+*** 3. Encrypt cloudflare-dns.age
+
+The =security.acme= module reads this as an env file. Format (one line,
+no quotes around the value, no trailing newline if your editor lets you
+control that):
+
+#+begin_src text
+CLOUDFLARE_DNS_API_TOKEN=<paste-the-token-here>
+#+end_src
+
+Encrypt it:
+
+#+begin_src bash
+cd ~/dev/my/nixos-fossil
+rm secrets/cloudflare-dns.age && agenix -e secrets/cloudflare-dns.age
+# Editor opens on a temp plaintext file. Type or paste the line above
+# (with your real token substituted in). Save and exit. agenix encrypts.
+#+end_src
+
+agenix uses =$EDITOR= for the temp file — set it to whatever you prefer
+(=export EDITOR=vim= etc.) before running the command.
+
+*** 4. Encrypt the fossil-sync password
+
+This password is embedded into HTTPS URLs by =bin/new-repo.sh= and the rotation runbook (=https://syncuser:$PASS@.../...=), so it MUST be URL-safe — no =@=, =:=, =/=, =%=, =?=, =#=, =+=, or whitespace. =pwgen -s= (the =-s= flag means "completely random, no human-friendly substitutions") produces alphanumeric output which is safe.
+
+Do NOT substitute =openssl rand -base64= or similar — those generate =+/= characters that break URL parsing.
+
+#+begin_src bash
+pwgen -s 64 1 > /tmp/sync.pass     # alphanumeric, URL-safe; 64 chars of entropy
+rm secrets/fossil-sync.age && agenix -e secrets/fossil-sync.age
+# paste contents of /tmp/sync.pass; one line, no trailing newline
+rm /tmp/sync.pass
+#+end_src
+
+*** 5. Encrypt tmk-password.age
+
+Generate a yescrypt-hashed password (this is the breaking-glass console password):
+
+#+begin_src bash
+mkpasswd -m yescrypt    # type a strong password; copy the entire $y$...$ hash
+rm secrets/tmk-password.age && agenix -e secrets/tmk-password.age
+# paste the hash; one line
+#+end_src
+
+*** 6. Create healthchecks.io account + 2 checks
+
+At https://healthchecks.io:
+
+- Create account.
+- Create one check per secondary, name them =secondary-1-sync= and =secondary-2-sync=.
+- Schedule: =every 5 minutes=, grace =15 minutes=.
+- Copy each check's ping URL.
+
+Encrypt the URLs:
+
+#+begin_src bash
+rm secrets/healthchecks-secondary-1.age && agenix -e secrets/healthchecks-secondary-1.age
+# paste URL, one line
+rm secrets/healthchecks-secondary-2.age && agenix -e secrets/healthchecks-secondary-2.age
+# paste URL, one line
+#+end_src
+
+*** 7. Generate Tailscale auth keys
+
+In Tailscale admin → Keys, create three /tagged/, /one-time/, /pre-approved/, /ephemeral=false/ auth keys; one per host. Tag them e.g. =tag:fossil=.
+
+Encrypt each:
+
+#+begin_src bash
+rm secrets/tailscale-authkey-canonical.age && agenix -e secrets/tailscale-authkey-canonical.age
+# paste auth key
+rm secrets/tailscale-authkey-secondary-1.age && agenix -e secrets/tailscale-authkey-secondary-1.age
+rm secrets/tailscale-authkey-secondary-2.age && agenix -e secrets/tailscale-authkey-secondary-2.age
+#+end_src
+
+*** 8. Push to GitHub
+
+#+begin_src bash
+git add -A
+git commit -m "feat: encrypted secrets initialized"
+git remote add origin https://git.exidia.com/tmk/nixos-fossil
+git push -u origin main
+# The Forgejo instance at git.exidia.com is the canonical location.
+# A GitHub mirror could be added later as a secondary remote if desired.
+#+end_src
+
+** Verification
+
+- =nix flake check= surfaces only hardware-config placeholder throws (no other errors).
+- =secrets/*.age= all show as encrypted text when =cat='d.
+- =git status= clean.
+
+* Adding a host
+
+End-to-end procedure for bringing up a new fossil server.
+
+** Prerequisites
+
+- Initial bootstrap complete (you have the admin keypair, Cloudflare token, etc.).
+- Provider (Hetzner Cloud or DigitalOcean) account with an SSH key registered.
+- This repo on your laptop, in the right directory.
+
+** Procedure
+
+*** 1. Provision the VM
+
+- Hetzner Cloud: create a CPX11 instance in the target DC, attach the NixOS rescue ISO or boot with the recovery image. Capture the IPv4.
+- DigitalOcean: similar.
+
+*** 2. DNS A record at Cloudflare
+
+In the =fossil.exidia.com= zone, add an A record for the host:
+- =@= for canonical (apex)
+- =s1= for secondary-1
+- =s2= for secondary-2
+
+*** 3. First boot — bootstrap install via nixos-anywhere
+
+From your laptop:
+
+#+begin_src bash
+nixos-anywhere \
+  --flake .#<hostname>-bootstrap \
+  --target-host root@<ip> \
+  --generate-hardware-config nixos-generate-config \
+  ./hosts/<hostname>-hardware.nix
+#+end_src
+
+Watch for: kexec → install → reboot. After reboot, =ssh root@<ip>= should work using your SSH key.
+
+*** 4. Capture host SSH host pubkey
+
+#+begin_src bash
+ssh root@<ip> 'cat /etc/ssh/ssh_host_ed25519_key.pub'
+#+end_src
+
+Copy the output (starts with =ssh-ed25519 AAAA...=).
+
+*** 5. Update secrets/secrets.nix + rekey
+
+In =secrets/secrets.nix=, locate the empty list for this host (one of =canonicalHost=, =secondary1Host=, =secondary2Host=) and replace =[ ]= with a one-element list containing the captured pubkey. For example, after provisioning canonical:
+
+#+begin_src nix
+# Before:
+canonicalHost = [ ];
+# After:
+canonicalHost = [ "ssh-ed25519 AAAA...captured...pubkey root@canonical" ];
+#+end_src
+
+Then re-encrypt every secret whose recipient list includes this host:
+
+#+begin_src bash
+agenix --rekey
+#+end_src
+
+Commit BOTH the rekey AND the generated hardware-config that =nixos-anywhere= produced in step 4. Without committing the hardware-config, =hosts/<hostname>-hardware.nix= on =git.exidia.com= remains the throwing placeholder, and =system.autoUpgrade= (which pulls from =git+https://git.exidia.com/tmk/nixos-fossil?ref=main#<host>=) will fail to evaluate on the next scheduled run, blocking kernel patches:
+
+#+begin_src bash
+git add secrets/ hosts/<hostname>-hardware.nix
+git commit -m "feat: register $hostname host key + hardware-config"
+git push
+#+end_src
+
+*** 6. Promote to full config
+
+#+begin_src bash
+nixos-rebuild switch --flake .#<hostname> --target-host root@<ip>
+#+end_src
+
+This is the first activation that references agenix secrets. =security.acme= issues the cert. Tailscale joins. fossil-server starts on :443.
+
+*** 7. Smoke test
+
+#+begin_src bash
+bin/smoke-test.sh <hostname>.fossil.exidia.com
+#+end_src
+
+** Verification
+
+- =bin/smoke-test.sh= all green.
+- HTTPS in a browser shows fossil's default page with a valid (non-self-signed) cert.
+- =systemctl status fossil-server= on the host shows =active (running)=.
+- (Secondaries only) =systemctl list-timers fossil-sync= shows the timer.
+
+** Rollback
+
+If the bootstrap fails partway: re-image the VM and start over from step 3.
+
+If the promote step (#6) fails to activate the new generation: the host stays on the bootstrap config; SSH still works; fix the issue locally and re-run =nixos-rebuild switch=.
+
+* Adding a repo
+
+Cluster-wide creation of a new fossil repo via =bin/new-repo.sh=.
+
+** Prerequisites
+
+- All target hosts deployed and reachable via SSH (configure hostnames in =~/.ssh/config= if needed).
+- =/run/agenix/fossil-sync= present and readable on every host (verify with =ssh canonical 'sudo ls -l /run/agenix/fossil-sync'=).
+
+** Procedure
+
+#+begin_src bash
+bin/new-repo.sh <reponame>
+#+end_src
+
+The script:
+
+1. SSHes to canonical, runs =fossil init=, creates =syncuser= with capability =v=, adds the repo to fossil's =all= list. The sync password is read from =/run/agenix/fossil-sync= on canonical.
+2. For each secondary, SSHes in, clones the new repo via =https://syncuser:$PASS@fossil.exidia.com/<name>=, sets =remote-url=, adds to =all=, runs a verifying =fossil all sync -u=.
+
+** Verification
+
+- =bin/new-repo.sh= exits 0.
+- Visit =https://fossil.exidia.com/<reponame>/= in a browser — fossil's setup-users page appears.
+- After ≤5 min, =https://s1.fossil.exidia.com/<reponame>/= and =https://s2.fossil.exidia.com/<reponame>/= serve the same content.
+
+** Post-creation: bootstrap the admin user
+
+Visit =https://fossil.exidia.com/<reponame>/setup_uedit?user=admin= and set a real password for the admin user (the one fossil created during =fossil init= will have the OS username as login).
+
+** Rollback
+
+If =new-repo.sh= fails partway, remove the partially-created repo file from any hosts that got it:
+
+#+begin_src bash
+ssh canonical 'sudo rm /var/lib/fossil/museum/<reponame>.fossil'
+ssh s1.fossil.exidia.com 'sudo rm /var/lib/fossil/museum/<reponame>.fossil'
+ssh s2.fossil.exidia.com 'sudo rm /var/lib/fossil/museum/<reponame>.fossil'
+#+end_src
+
+Then re-run the script.
+
+** Cross-references
+
+- [[file:reference.org#secrets-catalog][Secrets catalog]] for the format/source of =fossil-sync.age=.
+- [[file:runbooks/debug-sync-failure.org][debug-sync-failure]] if the verification step fails.
