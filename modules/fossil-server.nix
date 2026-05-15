@@ -130,5 +130,43 @@ in {
         RestrictNamespaces = true;
       };
     };
-  };
-}
+
+    # Secondaries pull (and push back local writes) every syncInterval.
+    # The systemd timer fires the service; the service runs as the fossil
+    # user (so $HOME=/var/lib/fossil is set automatically from passwd) and
+    # exits when sync completes. On success, ping healthchecks.io.
+    systemd.timers.fossil-sync = lib.mkIf (cfg.role == "secondary") {
+      description = "Fossil cluster sync (pull + push) every ${cfg.syncInterval}";
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnCalendar = cfg.syncInterval;
+        Persistent = true;
+        RandomizedDelaySec = "30s";
+      };
+    };
+
+    systemd.services.fossil-sync = lib.mkIf (cfg.role == "secondary") {
+      description = "Fossil cluster sync (oneshot)";
+      after = [ "network-online.target" "fossil-server.service" ];
+      wants = [ "network-online.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+        User = "fossil";
+        Group = "fossil";
+        # `fossil all sync -u` walks the user's "all" list (in
+        # /var/lib/fossil/.fossil) and syncs each repo against its stored
+        # remote URL. -u also syncs unversioned content.
+        ExecStart = "${pkgs.fossil}/bin/fossil all sync -u";
+        # On success, ping healthchecks.io if a URL file is provided.
+        # `cat` reads the agenix-decrypted file; -fsSL keeps curl quiet
+        # but reports failure exit codes.
+        ExecStartPost = lib.mkIf (cfg.healthcheckUrlFile != null) (
+          pkgs.writeShellScript "fossil-sync-healthcheck" ''
+            url=$(${pkgs.coreutils}/bin/cat ${cfg.healthcheckUrlFile})
+            ${pkgs.curl}/bin/curl -fsSL -m 10 --retry 3 "$url" || true
+          ''
+        );
+      };
+    };
+  };  # end of `config = lib.mkIf cfg.enable { ... }`
+}     # end of the module function
