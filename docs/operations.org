@@ -1,0 +1,139 @@
+#+TITLE: Operations
+#+OPTIONS: toc:3
+
+This document covers day-to-day operations. The expected pace is *low* — the cluster is meant to run unattended.
+
+* Routine checklist
+
+** Weekly
+
+- Glance at the healthchecks.io dashboard. If any check is in "down" or
+  "grace" state, jump to [[file:runbooks/debug-sync-failure.org][debug-sync-failure]].
+
+** Monthly
+
+- =ssh canonical 'journalctl -u nixos-upgrade -n 200'= — review the last
+  4 autoUpgrade runs. Look for repeated activation failures.
+- Repeat for each secondary.
+
+** Quarterly
+
+- Tailscale admin → Keys: verify auth keys haven't expired (they're
+  one-time-use so this is mostly a non-issue after install).
+- Cloudflare API tokens: check expiry. Rotate per
+  [[file:runbooks/rotate-secrets.org][rotate-secrets]] if needed.
+
+** Annually
+
+- Review =stateVersion= in each =hosts/*.nix=. NixOS releases new stable
+  channels twice yearly; consider bumping after the next release feels
+  stable (~6 months in).
+
+* Auto-upgrade
+
+** How it works
+
+=system.autoUpgrade= installs a systemd timer
+(=nixos-upgrade.timer=) that fires =Sun 03:00 UTC=, with a 30-minute
+random delay per host so they don't all reboot simultaneously. The
+service:
+
+1. =nix flake update= against =git+https://git.exidia.com/tmk/nixos-fossil?ref=main#<hostname>=.
+2. =nixos-rebuild boot= activates the new generation on next boot.
+3. If =allowReboot = true=, reboot now.
+
+If activation fails (or the new generation refuses to boot), NixOS falls
+back to the previous generation automatically — the boot menu still has
+it.
+
+** Checking upgrade status
+
+#+begin_src bash
+ssh <host> 'systemctl status nixos-upgrade.service'
+ssh <host> 'journalctl -u nixos-upgrade.service -n 200'
+#+end_src
+
+** Manual rollback
+
+#+begin_src bash
+ssh <host> 'nixos-rebuild --rollback switch'
+#+end_src
+
+Or reboot and pick a previous generation at the boot menu.
+
+** Disabling temporarily
+
+#+begin_src bash
+ssh <host> 'sudo systemctl stop nixos-upgrade.timer'
+ssh <host> 'sudo systemctl disable nixos-upgrade.timer'
+#+end_src
+
+To re-enable: =sudo systemctl enable --now nixos-upgrade.timer=.
+
+* agenix workflow
+
+** Adding a new secret
+
+1. Add the new entry to =secrets/secrets.nix= with the right recipient list.
+2. =agenix -e secrets/<name>.age= — paste contents in the editor that opens; save & exit.
+3. Reference =config.age.secrets.<name>.path= from the nix module that needs it.
+4. Commit + push.
+5. On each affected host: =nixos-rebuild switch --flake .#<host> --target-host root@<host>=.
+
+** Rotating an existing secret
+
+#+begin_src bash
+agenix -e secrets/<name>.age   # paste new value
+git add secrets/<name>.age && git commit -m "chore: rotate <name>"
+git push
+# Redeploy to every host that consumes this secret:
+for host in canonical secondary-1 secondary-2; do
+  nixos-rebuild switch --flake .#$host --target-host root@$host
+done
+#+end_src
+
+Special case: for the fossil-sync password rotation, follow
+[[file:runbooks/rotate-secrets.org][rotate-secrets]] for the additional
+step of updating each repo's stored remote URL.
+
+** Adding a new host to existing secrets
+
+Add the host's pubkey to =secrets/secrets.nix= recipient list(s), then:
+
+#+begin_src bash
+agenix --rekey
+git add secrets/ && git commit -m "feat: grant <host> access to <secret(s)>"
+#+end_src
+
+** Revoking a host
+
+Remove the host's pubkey from =secrets.nix=, =agenix --rekey=, commit.
+Note: the host already has the *decrypted* secret values; this only
+prevents future re-encryptions from being readable by it.
+
+* Healthchecks (monitoring)
+
+** What's monitored
+
+Only the secondaries' =fossil-sync.service=:
+
+- =secondary-1-sync= — pings hc.io on every successful sync (every 5 min).
+- =secondary-2-sync= — same.
+
+hc.io alerts (via email, configured in hc.io UI) if either stops pinging
+for >15 min (the grace period).
+
+** Adding a new check
+
+1. At hc.io: create new check with appropriate schedule + grace.
+2. Copy the ping URL.
+3. =agenix -e secrets/healthchecks-<name>.age= — paste the URL.
+4. In the nix module of the unit you want monitored, add an =ExecStartPost=
+   that =curl=s the URL (see =modules/fossil-server.nix= for the pattern).
+5. Redeploy.
+
+** Tuning grace periods
+
+In hc.io UI, set grace such that one missed sync isn't an alert (e.g.,
+schedule 5min, grace 15min = 3 missed runs before alerting). Network blips
+shouldn't page you.
