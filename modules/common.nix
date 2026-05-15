@@ -78,4 +78,27 @@
     "net.ipv4.tcp_congestion_control" = "bbr";
     "net.core.default_qdisc" = "cake";
   };
+
+  # Atomic auto-upgrade with weekly reboot for kernel patches. Staggered
+  # reboots so the 3 hosts don't reboot simultaneously.
+  system.autoUpgrade = {
+    enable = true;
+    flake = "git+https://git.exidia.com/tmk/nixos-fossil?ref=main#${config.networking.hostName}";
+    allowReboot = true;
+    dates = "Sun 03:00 UTC";
+    randomizedDelaySec = "30min";
+  };
+
+  # Keep nix store from growing unbounded.
+  nix.gc = {
+    automatic = true;
+    dates = "Sunday 02:00 UTC";
+    options = "--delete-older-than 14d";
+  };
+
+  # Cap journal disk usage.
+  services.journald.extraConfig = ''
+    SystemMaxUse=500M
+    MaxRetentionSec=30day
+  '';
 }
