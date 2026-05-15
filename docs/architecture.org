@@ -3,8 +3,7 @@
 
 * Purpose
 
-Explain *why* the cluster is shaped the way it is. Useful when revisiting
-a decision after months away.
+Explain *why* the cluster is shaped the way it is. Useful when revisiting a decision after months away.
 
 * Topology
 
@@ -44,37 +43,23 @@ Fossil 2.17+ supports native TLS, eliminating the need for nginx/caddy. Native T
 
 ** DNS-01 via Cloudflare vs. HTTP-01
 
-DNS-01 lets us close port 80 entirely. HTTP-01 would require a fossil
-=--acme= sidecar listener on :80, doubling the process count and
-expanding the public surface. The DNS-01 trade-off is migrating
-=fossil.exidia.com= to Cloudflare (Hover doesn't expose an API).
+DNS-01 lets us close port 80 entirely. HTTP-01 would require a fossil =--acme= sidecar listener on :80, doubling the process count and expanding the public surface. The DNS-01 trade-off is migrating =fossil.exidia.com= to Cloudflare (Hover doesn't expose an API).
 
 ** Canonical + secondaries vs. peer mesh
 
-Canonical / secondaries with a single =fossil all sync -u= cron on each
-secondary is the documented fossil-scm.org self-host pattern. Simpler
-than a full mesh, identical eventual-consistency properties for read/write.
+Canonical / secondaries with a single =fossil all sync -u= cron on each secondary is the documented fossil-scm.org self-host pattern. Simpler than a full mesh, identical eventual-consistency properties for read/write.
 
 ** agenix vs. sops-nix vs. out-of-band
 
-agenix: encrypted secrets in the repo, decrypted by SSH host keys.
-Per-deploy bootstrap is one =agenix --rekey= step. Beats out-of-band
-(secrets-not-versioned) by a wide margin once you have more than one
-host. sops-nix would also work but adds tooling weight.
+agenix: encrypted secrets in the repo, decrypted by SSH host keys. Per-deploy bootstrap is one =agenix --rekey= step. Beats out-of-band (secrets-not-versioned) by a wide margin once you have more than one host. sops-nix would also work but adds tooling weight.
 
 ** Public flake on GitHub vs. private
 
-Encrypted secrets are inert without the corresponding decryption keys.
-The public flake makes =system.autoUpgrade= trivially reachable and
-doesn't expose anything sensitive.
+Encrypted secrets are inert without the corresponding decryption keys. The public flake makes =system.autoUpgrade= trivially reachable and doesn't expose anything sensitive.
 
 ** healthchecks.io heartbeat vs. SMTP alerts
 
-For "is replication still working?" the dead-man's-switch model
-(healthchecks.io pings on success; alert when pings stop) catches more
-failure modes than per-failure SMTP, including "host is dead and can't
-send mail at all." SMTP-based unit-failure alerts are deferred to a
-future iteration if needed.
+For "is replication still working?" the dead-man's-switch model (healthchecks.io pings on success; alert when pings stop) catches more failure modes than per-failure SMTP, including "host is dead and can't send mail at all." SMTP-based unit-failure alerts are deferred to a future iteration if needed.
 
 * Non-goals for v1
 
@@ -87,8 +72,6 @@ future iteration if needed.
 
 * Open questions deferred to plan
 
-- Exact fossil capability bits for syncuser (using "v" Developer macro
-  as starting point; verify and tighten during early operation).
+- Exact fossil capability bits for syncuser (using "v" Developer macro as starting point; verify and tighten during early operation).
 - Hetzner CPX size: assuming CPX11 is sufficient; revisit if memory pressure.
-- DigitalOcean region for secondary-2: pick at provisioning time based
-  on geo-diversity from Hetzner DCs.
+- DigitalOcean region for secondary-2: pick at provisioning time based on geo-diversity from Hetzner DCs.

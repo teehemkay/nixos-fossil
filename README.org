@@ -3,10 +3,7 @@
 
 * Overview
 
-A NixOS-based fossil-server cluster for self-hosting personal projects.
-Three hosts (canonical + 2 secondaries) replicate via fossil's built-in
-sync. Native TLS, no reverse proxy. Public hosting on GitHub with
-agenix-encrypted secrets.
+A NixOS-based fossil-server cluster for self-hosting personal projects. Three hosts (canonical + 2 secondaries) replicate via fossil's built-in sync. Native TLS, no reverse proxy. Public hosting on GitHub with agenix-encrypted secrets.
 
 * Hosts
 

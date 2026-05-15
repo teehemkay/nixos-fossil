@@ -37,20 +37,11 @@ Back up =~/.ssh/id_ed25519= (private half) to 1Password or equivalent. Losing it
 
 *** Note on the zero-byte placeholders
 
-Steps 3-7 below each populate one of the =secrets/*.age= files. The repo
-ships these as zero-byte placeholders (committed during implementation
-so Nix path literals resolve during =nix eval=). =agenix -e <file>=
-treats any existing =<file>= as encrypted age content and tries to
-decrypt it before opening the editor — and 0-byte content is not valid
-age payload, so =agenix= would error.
+Steps 3-7 below each populate one of the =secrets/*.age= files. The repo ships these as zero-byte placeholders (committed during implementation so Nix path literals resolve during =nix eval=). =agenix -e <file>= treats any existing =<file>= as encrypted age content and tries to decrypt it before opening the editor — and 0-byte content is not valid age payload, so =agenix= would error.
 
-**Workaround: for the FIRST encryption of each secret, `rm` the
-placeholder immediately before `agenix -e`.** Once a real encrypted
-file exists, subsequent rotations use plain =agenix -e= without the
-=rm= (the file is now valid encrypted content).
+**Workaround: for the FIRST encryption of each secret, `rm` the placeholder immediately before `agenix -e`.** Once a real encrypted file exists, subsequent rotations use plain =agenix -e= without the =rm= (the file is now valid encrypted content).
 
-Each step below shows the =rm secrets/<name>.age && agenix -e secrets/<name>.age=
-form explicitly.
+Each step below shows the =rm secrets/<name>.age && agenix -e secrets/<name>.age= form explicitly.
 
 *** 2. Cloudflare account + DNS-01 API token
 
@@ -67,9 +58,7 @@ In Cloudflare's dashboard:
 
 *** 3. Encrypt cloudflare-dns.age
 
-The =security.acme= module reads this as an env file. Format (one line,
-no quotes around the value, no trailing newline if your editor lets you
-control that):
+The =security.acme= module reads this as an env file. Format (one line, no quotes around the value, no trailing newline if your editor lets you control that):
 
 #+begin_src text
 CLOUDFLARE_DNS_API_TOKEN=<paste-the-token-here>
@@ -84,8 +73,7 @@ rm secrets/cloudflare-dns.age && agenix -e secrets/cloudflare-dns.age
 # (with your real token substituted in). Save and exit. agenix encrypts.
 #+end_src
 
-agenix uses =$EDITOR= for the temp file — set it to whatever you prefer
-(=export EDITOR=vim= etc.) before running the command.
+agenix uses =$EDITOR= for the temp file — set it to whatever you prefer (=export EDITOR=vim= etc.) before running the command.
 
 *** 4. Encrypt the fossil-sync password
 

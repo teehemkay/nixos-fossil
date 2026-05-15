@@ -1,9 +1,7 @@
 #+TITLE: Reference
 #+OPTIONS: toc:3
 
-Lookup material. Open this when you need to remember the exact name or
-shape of something — not for narrative explanations (see
-[[file:architecture.org][architecture]] for that).
+Lookup material. Open this when you need to remember the exact name or shape of something — not for narrative explanations (see [[file:architecture.org][architecture]] for that).
 
 * Module options
 

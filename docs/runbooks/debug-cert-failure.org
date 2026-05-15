@@ -43,9 +43,7 @@ ssh <host> 'sudo cat /run/agenix/cloudflare-dns'
 
 Expected first (only) line: =CLOUDFLARE_DNS_API_TOKEN=<token>=
 
-If the format is wrong (e.g. raw token without the =VAR== prefix),
-re-encrypt via [[file:rotate-secrets.org][rotate-secrets]] → cloudflare-dns
-and ensure the file is an env file.
+If the format is wrong (e.g. raw token without the =VAR== prefix), re-encrypt via [[file:rotate-secrets.org][rotate-secrets]] → cloudflare-dns and ensure the file is an env file.
 
 ** 3. Force an early retry
 
