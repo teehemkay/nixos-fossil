@@ -1,0 +1,86 @@
+#+TITLE: Debug TLS cert (ACME / DNS-01) failure
+#+OPTIONS: toc:2
+
+* Purpose
+
+The =security.acme= module failed to issue or renew a cert. Diagnose and fix.
+
+Symptoms:
+
+- Browser shows "Your connection is not private" / cert expired.
+- =bin/smoke-test.sh= fails the "TLS cert valid" check.
+- =systemctl status fossil-server= shows the service running but with the old cert.
+
+* Prerequisites
+
+- SSH access to the affected host.
+- Cloudflare admin access (web UI).
+
+* Procedure
+
+** 1. Check the ACME unit status
+
+#+begin_src bash
+ssh <host> 'systemctl status acme-<domain>.service'
+ssh <host> 'journalctl -u acme-<domain>.service -n 200 --no-pager'
+#+end_src
+
+Common errors and fixes:
+
+| Error fragment                              | Likely cause                                                                  |
+|---------------------------------------------+-------------------------------------------------------------------------------|
+| =could not find zone for domain=              | =fossil.exidia.com= is not delegated to Cloudflare. Check NS at Hover.        |
+| =authentication failed=                       | Cloudflare API token is wrong/revoked. See [[file:rotate-secrets.org][rotate-secrets]] → cloudflare-dns.       |
+| =rate limit exceeded=                         | Let's Encrypt rate-limit hit (5 duplicate certs per week). Wait or use staging. |
+| =CLOUDFLARE_DNS_API_TOKEN not set=            | =cloudflare-dns.age= contents not in the expected env-file shape.             |
+| =timeout waiting for DNS=                     | DNS-01 record propagation slow. Wait + retry.                                  |
+
+** 2. Inspect the agenix-decrypted credential file
+
+#+begin_src bash
+ssh <host> 'sudo cat /run/agenix/cloudflare-dns'
+#+end_src
+
+Expected first (only) line: =CLOUDFLARE_DNS_API_TOKEN=<token>=
+
+If the format is wrong (e.g. raw token without the =VAR== prefix),
+re-encrypt via [[file:rotate-secrets.org][rotate-secrets]] → cloudflare-dns
+and ensure the file is an env file.
+
+** 3. Force an early retry
+
+#+begin_src bash
+ssh <host> 'sudo systemctl start acme-<domain>.service'
+#+end_src
+
+Watch the journal:
+
+#+begin_src bash
+ssh <host> 'sudo journalctl -fu acme-<domain>.service'
+#+end_src
+
+** 4. Switch to LE staging for diagnosis (optional)
+
+If you're hitting LE rate limits, add to the affected host config:
+
+#+begin_src nix
+security.acme.defaults.server = "https://acme-staging-v02.api.letsencrypt.org/directory";
+#+end_src
+
+Deploy, verify cert issues (with fake-LE-CA chain), then remove this line and redeploy for a real cert.
+
+* Verification
+
+- =systemctl status acme-<domain>.service= shows =Result: success=.
+- =systemctl status fossil-server.service= reloaded after cert renewal (=reloadServices=).
+- =bin/smoke-test.sh <host>= passes the TLS check.
+- Browser shows a valid cert.
+
+* Rollback
+
+ACME failures don't break the running fossil-server (it keeps the old cert in memory). There's nothing destructive to rollback. Just leave the broken state until fixed; users get TLS warnings but the service is functionally up.
+
+* Cross-references
+
+- [[file:rotate-secrets.org][rotate-secrets]] for cloudflare-dns.age changes.
+- [[file:../setup.org#cloudflare-account-dns-01-api-token][setup.org → Cloudflare token]] for the token-scope requirements.
