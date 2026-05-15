@@ -69,7 +69,7 @@ Repos served as `https://<host>/<reponame>` via `fossil server --repolist /var/l
 
 ## 3. NixOS Repo Structure
 
-Fresh repo at `~/dev/my/nixos-fossil`, hosted publicly at `github:teehemkay/nixos-fossil`. agenix-encrypted secrets are inert without each host's SSH private key, so public is safe.
+Fresh repo at `~/dev/my/nixos-fossil`, hosted on the operator's self-managed Forgejo instance at `https://git.exidia.com/tmk/nixos-fossil` (public). agenix-encrypted secrets are inert without each host's SSH private key, so public is safe.
 
 ```
 flake.nix
@@ -329,7 +329,7 @@ Zero maintenance cost, real defensive value.
 ```nix
 system.autoUpgrade = {
   enable = true;
-  flake = "github:teehemkay/nixos-fossil#${hostname}";
+  flake = "git+https://git.exidia.com/tmk/nixos-fossil?ref=main#${hostname}";
   allowReboot = true;
   dates = "Sun 03:00 UTC";
   randomizedDelaySec = "30min";  # stagger reboots
@@ -383,7 +383,7 @@ Other failures: noticed on next SSH + `systemctl --failed`. Document the gap exp
 Two paths:
 
 - **Push-style** (immediate, intentional): `nixos-rebuild switch --flake .#<host> --target-host root@<host>`. Drive the rollout; watch output; choose host order. Use `nixos-rebuild test` first for risky changes (activates without making it default-boot; survives reboot via previous generation).
-- **Pull-style** (scheduled patches): `system.autoUpgrade` weekly, Sun 03:00 UTC. Hosts pull from `github:teehemkay/nixos-fossil#<hostname>`. Staggered reboots via `randomizedDelaySec`.
+- **Pull-style** (scheduled patches): `system.autoUpgrade` weekly, Sun 03:00 UTC. Hosts pull from `git+https://git.exidia.com/tmk/nixos-fossil?ref=main#<hostname>`. Staggered reboots via `randomizedDelaySec`.
 
 ### Repo provisioning
 

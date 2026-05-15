@@ -371,7 +371,7 @@ Append to the end of `modules/common.nix` (before the final `}`):
   # reboots so the 3 hosts don't reboot simultaneously.
   system.autoUpgrade = {
     enable = true;
-    flake = "github:teehemkay/nixos-fossil#${config.networking.hostName}";
+    flake = "git+https://git.exidia.com/tmk/nixos-fossil?ref=main#${config.networking.hostName}";
     allowReboot = true;
     dates = "Sun 03:00 UTC";
     randomizedDelaySec = "30min";
@@ -1797,8 +1797,10 @@ rm secrets/tailscale-authkey-secondary-2.age && agenix -e secrets/tailscale-auth
 #+begin_src bash
 git add -A
 git commit -m "feat: encrypted secrets initialized"
-gh repo create teehemkay/nixos-fossil --public --source . --push
-# Or: git remote add origin git@github.com:teehemkay/nixos-fossil.git && git push -u origin main
+git remote add origin https://git.exidia.com/tmk/nixos-fossil
+git push -u origin main
+# The Forgejo instance at git.exidia.com is the canonical location.
+# A GitHub mirror could be added later as a secondary remote if desired.
 #+end_src
 
 ** Verification
@@ -1870,7 +1872,7 @@ Then re-encrypt every secret whose recipient list includes this host:
 agenix --rekey
 #+end_src
 
-Commit BOTH the rekey AND the generated hardware-config that =nixos-anywhere= produced in step 4. Without committing the hardware-config, =hosts/<hostname>-hardware.nix= on GitHub remains the throwing placeholder, and =system.autoUpgrade= (which pulls from =github:teehemkay/nixos-fossil#<host>=) will fail to evaluate on the next scheduled run, blocking kernel patches:
+Commit BOTH the rekey AND the generated hardware-config that =nixos-anywhere= produced in step 4. Without committing the hardware-config, =hosts/<hostname>-hardware.nix= on =git.exidia.com= remains the throwing placeholder, and =system.autoUpgrade= (which pulls from =git+https://git.exidia.com/tmk/nixos-fossil?ref=main#<host>=) will fail to evaluate on the next scheduled run, blocking kernel patches:
 
 #+begin_src bash
 git add secrets/ hosts/<hostname>-hardware.nix
@@ -2119,7 +2121,7 @@ This document covers day-to-day operations. The expected pace is *low* — the c
 random delay per host so they don't all reboot simultaneously. The
 service:
 
-1. =nix flake update= against =github:teehemkay/nixos-fossil#<hostname>=.
+1. =nix flake update= against =git+https://git.exidia.com/tmk/nixos-fossil?ref=main#<hostname>=.
 2. =nixos-rebuild boot= activates the new generation on next boot.
 3. If =allowReboot = true=, reboot now.
 
@@ -2369,7 +2371,7 @@ services.fossilServer = {
 };
 #+end_src
 
-**Do NOT change =networking.hostName=** during promotion. The common module derives =system.autoUpgrade.flake= from =config.networking.hostName= (=github:teehemkay/nixos-fossil#${hostName}=). If you rename =secondary-1= to =canonical=, the host will start pulling the =.#canonical= flake output from GitHub on its next weekly autoUpgrade — which is still wired up to the OLD (dead) canonical's config, with its own hardware-config, secrets, and role. Keep the hostname stable; the role change in =services.fossilServer.role= is what makes it the new canonical. The flake output name (=.#secondary-1=) remains the binding identifier.
+**Do NOT change =networking.hostName=** during promotion. The common module derives =system.autoUpgrade.flake= from =config.networking.hostName= (=git+https://git.exidia.com/tmk/nixos-fossil?ref=main#${hostName}=). If you rename =secondary-1= to =canonical=, the host will start pulling the =.#canonical= flake output from =git.exidia.com= on its next weekly autoUpgrade — which is still wired up to the OLD (dead) canonical's config, with its own hardware-config, secrets, and role. Keep the hostname stable; the role change in =services.fossilServer.role= is what makes it the new canonical. The flake output name (=.#secondary-1=) remains the binding identifier.
 
 Commit + push:
 
@@ -2940,7 +2942,7 @@ If anything broke during this verification, fix it and commit. Otherwise nothing
 git push origin main
 ```
 
-Expected: clean push. =github:teehemkay/nixos-fossil= now serves the full repo (used by =system.autoUpgrade=).
+Expected: clean push. =https://git.exidia.com/tmk/nixos-fossil= now serves the full repo (used by =system.autoUpgrade=).
 
 ### Task 37: Document the plan completion + handoff to deploy
 
@@ -2981,5 +2983,5 @@ Items 3-7 are validated by following the runbooks in `docs/setup.org`. The plan'
 - [ ] `bin/new-repo.sh` validates its repo-name argument and is shellcheck-clean.
 - [ ] `bin/smoke-test.sh` shellcheck-clean.
 - [ ] All 10 documentation files exist (README + 4 top-level + 5 runbooks) and follow the §7 standard.
-- [ ] All work committed and pushed to `github:teehemkay/nixos-fossil`.
+- [ ] All work committed and pushed to `https://git.exidia.com/tmk/nixos-fossil`.
 - [ ] tmk has the green light to start the deploy procedure in `docs/setup.org`.
