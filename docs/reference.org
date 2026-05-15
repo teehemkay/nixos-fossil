@@ -55,7 +55,7 @@ Each host needs network access to:
 
 - Cloudflare API (=api.cloudflare.com=) — for DNS-01.
 - Let's Encrypt (=acme-v02.api.letsencrypt.org=) — cert issuance.
-- =github.com= — for =system.autoUpgrade= flake pull.
+- =git.exidia.com= — for =system.autoUpgrade= flake pull.
 - =hc-ping.com= (secondaries only) — for monitoring pings.
 - Tailscale coord server (=login.tailscale.com=, =controlplane.tailscale.com=).
 

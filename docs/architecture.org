@@ -53,7 +53,7 @@ Canonical / secondaries with a single =fossil all sync -u= cron on each secondar
 
 agenix: encrypted secrets in the repo, decrypted by SSH host keys. Per-deploy bootstrap is one =agenix --rekey= step. Beats out-of-band (secrets-not-versioned) by a wide margin once you have more than one host. sops-nix would also work but adds tooling weight.
 
-** Public flake on GitHub vs. private
+** Public flake vs. private
 
 Encrypted secrets are inert without the corresponding decryption keys. The public flake makes =system.autoUpgrade= trivially reachable and doesn't expose anything sensitive.
 

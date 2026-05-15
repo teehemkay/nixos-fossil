@@ -74,9 +74,15 @@ DO UI → droplet → Recovery → Boot from Recovery ISO → reboot.
 
 DO doesn't give SSH access in recovery mode; use the *web console* (DO UI → console).
 
-** 3. Follow steps 3-6 from the Hetzner procedure above.
+** 3. Follow steps 3-6 from the Hetzner procedure above, substituting =/dev/vda= for =/dev/sda=.
 
-The disk layout is the same; the only difference is the device path (=/dev/vda= instead of =/dev/sda=).
+The disk layout is the same; the only difference is the device path. Specifically, the ESP mount in step 3 becomes:
+
+#+begin_src bash
+mount /dev/vda2 /mnt/boot      # ESP partition (DO uses /dev/vda)
+#+end_src
+
+The LVM commands (=vgchange -ay pool=, =mount /dev/pool/root /mnt=) are device-path-independent and unchanged.
 
 * Verification
 

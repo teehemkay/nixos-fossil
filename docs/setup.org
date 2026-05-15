@@ -129,7 +129,7 @@ rm secrets/tailscale-authkey-secondary-1.age && agenix -e secrets/tailscale-auth
 rm secrets/tailscale-authkey-secondary-2.age && agenix -e secrets/tailscale-authkey-secondary-2.age
 #+end_src
 
-*** 8. Push to GitHub
+*** 8. Push to git.exidia.com
 
 #+begin_src bash
 git add -A
@@ -227,8 +227,11 @@ This is the first activation that references agenix secrets. =security.acme= iss
 
 *** 7. Smoke test
 
+The argument is the DNS name fossil serves on for that host, NOT the NixOS hostname. Use =fossil.exidia.com= for canonical, =s1.fossil.exidia.com= for secondary-1, =s2.fossil.exidia.com= for secondary-2.
+
 #+begin_src bash
-bin/smoke-test.sh <hostname>.fossil.exidia.com
+bin/smoke-test.sh <dns-name>
+# e.g. bin/smoke-test.sh fossil.exidia.com
 #+end_src
 
 ** Verification
