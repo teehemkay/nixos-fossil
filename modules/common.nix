@@ -47,4 +47,35 @@
   environment.systemPackages = map lib.lowPrio [
     pkgs.vim pkgs.curl pkgs.gitMinimal
   ];
+
+  # Public firewall: SSH and fossil only. Tailscale opens UDP 41641 itself.
+  networking.firewall = {
+    enable = true;
+    allowedTCPPorts = [ 22 443 ];
+  };
+
+  # Kernel-level hardening. Zero maintenance cost, real defensive value.
+  # Carried forward from ~/dev/playground/nixos-fossil/configuration.nix:241-274.
+  boot.kernelModules = [ "tcp_bbr" ];
+  boot.kernel.sysctl = {
+    "kernel.sysrq" = 0;
+    "net.ipv4.icmp_echo_ignore_broadcasts" = 1;
+    "net.ipv4.icmp_ignore_bogus_error_responses" = 1;
+    "net.ipv4.conf.default.rp_filter" = 1;
+    "net.ipv4.conf.all.rp_filter" = 1;
+    "net.ipv4.tcp_syncookies" = 1;
+    "net.ipv4.conf.all.accept_redirects" = 0;
+    "net.ipv4.conf.default.accept_redirects" = 0;
+    "net.ipv4.conf.all.secure_redirects" = 0;
+    "net.ipv4.conf.default.secure_redirects" = 0;
+    "net.ipv6.conf.all.accept_redirects" = 0;
+    "net.ipv6.conf.default.accept_redirects" = 0;
+    "net.ipv4.conf.all.send_redirects" = 0;
+    "net.ipv4.conf.all.accept_source_route" = 0;
+    "net.ipv6.conf.all.accept_source_route" = 0;
+    "net.ipv4.tcp_rfc1337" = 1;
+    "net.ipv4.tcp_fastopen" = 3;
+    "net.ipv4.tcp_congestion_control" = "bbr";
+    "net.core.default_qdisc" = "cake";
+  };
 }
