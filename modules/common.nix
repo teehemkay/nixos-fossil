@@ -1,6 +1,10 @@
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, inputs, ... }:
 
 {
+  imports = [
+    inputs.agenix.nixosModules.default
+  ];
+
   # Disable mutable user state — everything declarative.
   users.mutableUsers = false;
 
