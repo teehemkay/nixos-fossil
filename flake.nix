@@ -44,6 +44,22 @@
           ./hosts/${name}-hardware.nix
         ];
       };
+
+      # Helper: build an eval-test variant of a host. Imports the host
+      # config but with the non-throwing fixture in place of the real
+      # hardware-config. Only for verifying that module wiring evaluates;
+      # NOT deployable. Because the host file (hosts/<name>.nix) no longer
+      # imports its hardware-config directly, we can simply NOT import
+      # ./hosts/${name}-hardware.nix here — no disabledModules trickery.
+      mkHostEvalTest = name: nixpkgs.lib.nixosSystem {
+        inherit system;
+        specialArgs = { inherit inputs; };
+        modules = [
+          disko.nixosModules.disko
+          ./hosts/${name}.nix
+          ./hosts/_fixture-hardware.nix
+        ];
+      };
     in {
       nixosConfigurations = {
         canonical             = mkHost          "canonical";
@@ -52,6 +68,9 @@
         secondary-1-bootstrap = mkHostBootstrap "secondary-1";
         secondary-2           = mkHost          "secondary-2";
         secondary-2-bootstrap = mkHostBootstrap "secondary-2";
+        canonical-eval-test    = mkHostEvalTest "canonical";
+        secondary-1-eval-test  = mkHostEvalTest "secondary-1";
+        secondary-2-eval-test  = mkHostEvalTest "secondary-2";
       };
     };
 }
