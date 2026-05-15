@@ -1,0 +1,94 @@
+#+TITLE: Architecture
+#+OPTIONS: toc:2
+
+* Purpose
+
+Explain *why* the cluster is shaped the way it is. Useful when revisiting
+a decision after months away.
+
+* Topology
+
+#+begin_src
+        ┌───────────────────────┐
+        │   fossil.exidia.com   │  ← canonical (Hetzner DC1)
+        │     (authoritative)   │
+        └───────────┬───────────┘
+                    │ pulls + pushes every 5 min
+       ┌────────────┼────────────┐
+       │            │            │
+┌──────▼─────┐ ┌────▼───────┐
+│ s1.fossil  │ │ s2.fossil  │  ← secondaries (Hetzner DC2 + DO)
+│ .exidia    │ │ .exidia    │     accept user writes locally;
+│ .com       │ │ .com       │     converge via canonical
+└────────────┘ └────────────┘
+#+end_src
+
+Convergence:
+
+- Canonical → secondary: ~5 min worst-case (1 tick).
+- Secondary → other secondary: ~10 min worst-case (2 ticks via canonical).
+
+* Decisions and rationale
+
+** Fresh repo vs. extending nixos-anywhere
+
+This is a production deployment with site-specific paths and secrets. The =nixos-anywhere= repo is a fork of the upstream examples repo; keeping it sync-able with upstream is more valuable than cramming a production target into it.
+
+** Fossil-native TLS vs. reverse proxy
+
+Fossil 2.17+ supports native TLS, eliminating the need for nginx/caddy. Native TLS:
+
+- One process instead of two.
+- TLS key never enters fossil's chroot (read before privdrop).
+- Simpler systemd unit.
+
+** DNS-01 via Cloudflare vs. HTTP-01
+
+DNS-01 lets us close port 80 entirely. HTTP-01 would require a fossil
+=--acme= sidecar listener on :80, doubling the process count and
+expanding the public surface. The DNS-01 trade-off is migrating
+=fossil.exidia.com= to Cloudflare (Hover doesn't expose an API).
+
+** Canonical + secondaries vs. peer mesh
+
+Canonical / secondaries with a single =fossil all sync -u= cron on each
+secondary is the documented fossil-scm.org self-host pattern. Simpler
+than a full mesh, identical eventual-consistency properties for read/write.
+
+** agenix vs. sops-nix vs. out-of-band
+
+agenix: encrypted secrets in the repo, decrypted by SSH host keys.
+Per-deploy bootstrap is one =agenix --rekey= step. Beats out-of-band
+(secrets-not-versioned) by a wide margin once you have more than one
+host. sops-nix would also work but adds tooling weight.
+
+** Public flake on GitHub vs. private
+
+Encrypted secrets are inert without the corresponding decryption keys.
+The public flake makes =system.autoUpgrade= trivially reachable and
+doesn't expose anything sensitive.
+
+** healthchecks.io heartbeat vs. SMTP alerts
+
+For "is replication still working?" the dead-man's-switch model
+(healthchecks.io pings on success; alert when pings stop) catches more
+failure modes than per-failure SMTP, including "host is dead and can't
+send mail at all." SMTP-based unit-failure alerts are deferred to a
+future iteration if needed.
+
+* Non-goals for v1
+
+- Offsite backups beyond replication.
+- Email alerts for arbitrary unit failures.
+- Automatic failover / promotion.
+- Web UI for repo management.
+- NixOS VM integration tests.
+- Fossil → Git export mirror.
+
+* Open questions deferred to plan
+
+- Exact fossil capability bits for syncuser (using "v" Developer macro
+  as starting point; verify and tighten during early operation).
+- Hetzner CPX size: assuming CPX11 is sufficient; revisit if memory pressure.
+- DigitalOcean region for secondary-2: pick at provisioning time based
+  on geo-diversity from Hetzner DCs.
