@@ -1,0 +1,95 @@
+#+TITLE: Promote a secondary to canonical
+#+OPTIONS: toc:2
+
+* Purpose
+
+Canonical is unrecoverable (host dead, data corrupted, account suspended). Promote a healthy secondary to canonical so the cluster keeps serving writes.
+
+This is a *manual* procedure. No automatic failover in v1.
+
+* Prerequisites
+
+- A secondary that's reachable, up-to-date (=fossil all sync -u= recently succeeded), and serving traffic.
+- Local access to this repo (=~/dev/my/nixos-fossil=) + Cloudflare API access (web UI or =flarectl=).
+- =nixos-rebuild= access to the secondary you're promoting and any *other* surviving secondaries.
+
+* Procedure
+
+** 1. Choose the new canonical
+
+Pick the secondary that's most up-to-date. Verify by SSHing in and running:
+
+#+begin_src bash
+sudo -u fossil env HOME=/var/lib/fossil fossil all info | head -40
+#+end_src
+
+(Compare =mtime= across hosts if multiple are live.)
+
+** 2. Switch DNS at Cloudflare
+
+In the =fossil.exidia.com= zone, edit the =@= (apex) A record to point at the new canonical's IPv4. TTL was 60 by default; propagation is fast.
+
+#+begin_src bash
+# Verify:
+dig +short fossil.exidia.com
+#+end_src
+
+** 3. Disable the sync timer on the promoted host
+
+The new canonical no longer syncs from itself. Edit =hosts/<promoted>.nix= to change the role:
+
+#+begin_src nix
+services.fossilServer = {
+  enable = true;
+  role = "canonical";   # was "secondary"
+  domain = "fossil.exidia.com";   # was e.g. "s1.fossil.exidia.com"
+  # remove healthcheckUrlFile
+};
+#+end_src
+
+**Do NOT change =networking.hostName=** during promotion. The common module derives =system.autoUpgrade.flake= from =config.networking.hostName= (=git+https://git.exidia.com/tmk/nixos-fossil?ref=main#${hostName}=). If you rename =secondary-1= to =canonical=, the host will start pulling the =.#canonical= flake output from =git.exidia.com= on its next weekly autoUpgrade — which is still wired up to the OLD (dead) canonical's config, with its own hardware-config, secrets, and role. Keep the hostname stable; the role change in =services.fossilServer.role= is what makes it the new canonical. The flake output name (=.#secondary-1=) remains the binding identifier.
+
+Commit + push:
+
+#+begin_src bash
+git add hosts/<promoted>.nix
+git commit -m "feat: promote <promoted> to canonical"
+git push
+#+end_src
+
+Deploy:
+
+#+begin_src bash
+nixos-rebuild switch --flake .#<promoted> --target-host root@<promoted>
+#+end_src
+
+This stops =fossil-sync.timer=, re-issues a TLS cert for =fossil.exidia.com= (the new domain), and updates the baseurl.
+
+** 4. Repoint remaining secondaries
+
+If other secondaries are alive, their stored remote URLs point at the *old* canonical's domain (=fossil.exidia.com=) — which now resolves to the new canonical. They should keep working without code changes.
+
+If you also changed the *domain* of the new canonical (you shouldn't, but just in case), re-run =fossil remote-url -R= on every repo on every surviving secondary to point at the new domain.
+
+* Verification
+
+- =dig +short fossil.exidia.com= returns the new canonical's IPv4.
+- =bin/smoke-test.sh fossil.exidia.com= passes.
+- On each surviving secondary, =sudo systemctl start fossil-sync.service && sudo systemctl status fossil-sync= succeeds.
+- =healthchecks.io= pings resume from any remaining secondaries.
+
+* Rollback
+
+If the promotion goes wrong before DNS propagates:
+
+- Revert the Cloudflare A record.
+- =git revert= the host config change + redeploy.
+
+If after DNS propagates and writes have happened on the new canonical:
+
+- Decide whether to abandon those writes (revert + accept data loss) or fold them in (treat the new canonical as the new authoritative state).
+
+* Cross-references
+
+- [[file:../setup.org][setup.org]] — adding a fresh host to replace the dead canonical.
+- [[file:debug-cert-failure.org][debug-cert-failure]] if the new ACME cert doesn't issue.
