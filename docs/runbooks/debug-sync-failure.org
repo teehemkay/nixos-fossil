@@ -1,0 +1,90 @@
+#+TITLE: Debug fossil sync failure
+#+OPTIONS: toc:2
+
+* Purpose
+
+A secondary's =fossil-sync.service= is failing. healthchecks.io will alert after the grace period, or you noticed during a manual check.
+
+* Prerequisites
+
+- SSH access to the affected secondary + canonical.
+
+* Procedure
+
+** 1. Read the journal
+
+#+begin_src bash
+ssh <secondary> 'journalctl -u fossil-sync.service -n 100 --no-pager'
+#+end_src
+
+Common errors:
+
+| Error fragment                                     | Likely cause                                                          |
+|----------------------------------------------------+-----------------------------------------------------------------------|
+| =authentication failed=                             | Sync password mismatch (canonical and secondary). See [[file:rotate-secrets.org][rotate-secrets]] → fossil-sync. |
+| =no such user: syncuser=                            | The per-repo syncuser was never created. See [[#new-repo-without-syncuser][below]].             |
+| =SSL_connect ... certificate verify failed=         | Canonical's TLS cert is broken. See [[file:debug-cert-failure.org][debug-cert-failure]].                |
+| =server returned: 404=                              | Repo doesn't exist on canonical, or remote URL points to the wrong path. |
+| =Cannot locate home directory=                      | Fossil =$HOME= not set. Check that =fossil-sync.service= has =User=fossil= and that =users.users.fossil.home= is set. |
+
+** 2. Manual sync with verbose output
+
+#+begin_src bash
+ssh <secondary> 'sudo -u fossil env HOME=/var/lib/fossil fossil all sync -u -v'
+#+end_src
+
+The =-v= flag prints every repo being synced and what happens for each.
+
+** 3. Verify remote URLs are correct
+
+#+begin_src bash
+ssh <secondary> bash -s <<'EOF'
+set -euo pipefail
+SUDO_AS_FOSSIL=(sudo -u fossil env HOME=/var/lib/fossil)
+"${SUDO_AS_FOSSIL[@]}" fossil all list | while read -r repo_path; do
+  echo "=== $repo_path ==="
+  "${SUDO_AS_FOSSIL[@]}" fossil remote-url -R "$repo_path"
+done
+EOF
+#+end_src
+
+Expected: each line is =https://syncuser:<password>@fossil.exidia.com/<reponame>=. If any URL points elsewhere, fix with =fossil remote-url -R <repo> <url>=.
+
+** <<new-repo-without-syncuser>>4. Repair: syncuser missing on canonical
+
+If the journal said "no such user: syncuser" for a specific repo, the syncuser was never created on canonical for that repo. Fix it:
+
+#+begin_src bash
+ssh canonical bash -s <<'EOF'
+set -euo pipefail
+PASS=$(sudo cat /run/agenix/fossil-sync)
+SUDO_AS_FOSSIL=(sudo -u fossil env HOME=/var/lib/fossil)
+REPO_FILE=/var/lib/fossil/museum/<repo>.fossil   # ← replace <repo>
+
+"${SUDO_AS_FOSSIL[@]}" fossil user new syncuser "" "$PASS" -R "$REPO_FILE"
+"${SUDO_AS_FOSSIL[@]}" fossil user capabilities syncuser v -R "$REPO_FILE"
+EOF
+#+end_src
+
+** 5. Re-trigger the sync timer
+
+#+begin_src bash
+ssh <secondary> 'sudo systemctl start fossil-sync.service'
+ssh <secondary> 'sudo systemctl status fossil-sync.service'
+#+end_src
+
+* Verification
+
+- =systemctl status fossil-sync.service= shows =Result: success= and recent =Triggers=.
+- healthchecks.io pings resume (visible at https://healthchecks.io).
+- =fossil all sync -u -v= on the secondary completes with no error per repo.
+
+* Rollback
+
+Sync failures are non-destructive (fossil's append-only model). There's nothing to rollback at the data layer. Just keep retrying after each fix.
+
+* Cross-references
+
+- [[file:rotate-secrets.org][rotate-secrets]] → fossil-sync.
+- [[file:debug-cert-failure.org][debug-cert-failure]] if the cause is canonical's TLS.
+- [[file:../setup.org#adding-a-repo][setup.org → Adding a repo]] for the right way to provision new repos (so syncuser is always created).
