@@ -1,0 +1,68 @@
+#+TITLE: Reference
+#+OPTIONS: toc:3
+
+Lookup material. Open this when you need to remember the exact name or
+shape of something — not for narrative explanations (see
+[[file:architecture.org][architecture]] for that).
+
+* Module options
+
+** services.fossilServer.*
+
+| Option              | Type                | Default                     | Description                                                                 |
+|---------------------+---------------------+-----------------------------+-----------------------------------------------------------------------------|
+| =enable=              | bool                | =false=                       | Enable the fossil-server module.                                            |
+| =role=                | enum: =canonical= | =secondary= | (required)                  | Cluster role. Only =secondary= runs the sync timer.                          |
+| =domain=              | string              | (required)                  | DNS name for ACME + fossil =--baseurl=.                                     |
+| =repoDir=             | path                | =/var/lib/fossil/museum=      | Repolist directory holding =.fossil= files.                                   |
+| =syncInterval=        | string              | =*:0/5=                       | systemd OnCalendar expression for sync timer.                              |
+| =healthcheckUrlFile=  | nullable path       | =null=                        | Path to agenix-decrypted hc.io ping URL. =null= disables monitoring.        |
+
+* Secrets catalog
+
+| File                                          | Purpose                                                 | Format                                                   | Read by                            |
+|-----------------------------------------------+---------------------------------------------------------+----------------------------------------------------------+------------------------------------|
+| =cloudflare-dns.age=                            | Cloudflare DNS-01 API token                             | Env file: =CLOUDFLARE_DNS_API_TOKEN=<token>=               | =security.acme=                      |
+| =fossil-sync.age=                               | Fossil sync user password (cluster-wide)                | Plain text, one line, no trailing newline                | =bin/new-repo.sh=, sync stored URLs |
+| =tmk-password.age=                              | tmk's console-fallback yescrypt hash                    | One line =$y$...$=                                         | PAM (via =hashedPasswordFile=)       |
+| =tailscale-authkey-<host>.age=                  | Per-host Tailscale auth key (one-time, tagged)          | One line =tskey-auth-...=                                  | =services.tailscale.authKeyFile=     |
+| =healthchecks-<host>.age=                       | Per-secondary hc.io ping URL                            | One line =https://hc-ping.com/<uuid>=                      | =fossil-sync.service ExecStartPost=  |
+
+Generation steps for each — see [[file:setup.org][setup.org]].
+
+* Network topology
+
+** DNS
+
+- Registrar: Hover.
+- Zone =exidia.com= hosted at Hover.
+- Subdomain =fossil.exidia.com= *delegated* to Cloudflare (NS records at Hover point to Cloudflare).
+- Cloudflare zone for =fossil.exidia.com= contains:
+  - =@= → canonical's IPv4
+  - =s1= → secondary-1's IPv4
+  - =s2= → secondary-2's IPv4
+
+** Firewall (every host)
+
+| Port  | Proto | Inbound source | Notes                                  |
+|-------+-------+----------------+----------------------------------------|
+| 22    | TCP   | public + tailnet | SSH (key-only)                       |
+| 443   | TCP   | public         | fossil server                          |
+| 41641 | UDP   | public         | Tailscale direct-connect (NixOS auto) |
+| all   | *     | (outbound)     | default-allow, stateful                |
+
+** Outbound dependencies
+
+Each host needs network access to:
+
+- Cloudflare API (=api.cloudflare.com=) — for DNS-01.
+- Let's Encrypt (=acme-v02.api.letsencrypt.org=) — cert issuance.
+- =github.com= — for =system.autoUpgrade= flake pull.
+- =hc-ping.com= (secondaries only) — for monitoring pings.
+- Tailscale coord server (=login.tailscale.com=, =controlplane.tailscale.com=).
+
+** Tailscale
+
+- Tag: =tag:fossil=.
+- ACL: defaults are fine for v1 (all members can talk to all members).
+- No tailscale-specific firewall rules at the NixOS layer beyond what Tailscale opens.
