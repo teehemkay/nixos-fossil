@@ -1,0 +1,89 @@
+#+TITLE: Recover a host via cloud-provider rescue mode
+#+OPTIONS: toc:2
+
+* Purpose
+
+You pushed a bad config that broke SSH everywhere (both public and Tailscale). Use the cloud provider's rescue mode to mount the disk and revert.
+
+* Prerequisites
+
+- Provider account access (Hetzner Cloud UI / DigitalOcean UI).
+- SSH key registered with the provider.
+
+* Procedure — Hetzner Cloud
+
+** 1. Boot into rescue mode
+
+Hetzner Cloud UI → server → Rescue tab → enable Rescue System (Linux 64-bit) → reboot.
+
+** 2. SSH in as root
+
+Hetzner emails (or shows in UI) a one-time password. Use it.
+
+#+begin_src bash
+ssh root@<ip>
+#+end_src
+
+** 3. Mount the NixOS root
+
+The disk layout (per =modules/disko.nix=) is GPT → LVM PV → vg "pool" → lv "root".
+
+#+begin_src bash
+vgchange -ay pool
+mount /dev/pool/root /mnt
+mount /dev/sda2 /mnt/boot      # ESP partition
+#+end_src
+
+** 4. Roll back the failing generation
+
+Get the boot menu / generation list:
+
+#+begin_src bash
+ls -la /mnt/nix/var/nix/profiles/system-*-link
+#+end_src
+
+Pick the previous working generation (smaller number = older). For each entry pointing to a generation you want to discard, you can simply mark a previous one as default:
+
+#+begin_src bash
+chroot /mnt /run/current-system/sw/bin/nixos-rebuild --rollback boot
+#+end_src
+
+(If =chroot= can't find the right binaries, you can also manually delete the broken generation symlink and =nix-env --rollback -p /nix/var/nix/profiles/system=.)
+
+** 5. Disable rescue mode + reboot
+
+In Hetzner UI: disable Rescue System. Then:
+
+#+begin_src bash
+umount /mnt/boot /mnt
+vgchange -an pool
+reboot
+#+end_src
+
+** 6. Verify
+
+After the host comes back, =ssh root@<ip>= via your normal SSH key should work. =systemctl --failed= should be empty.
+
+* Procedure — DigitalOcean
+
+** 1. Boot into Recovery ISO
+
+DO UI → droplet → Recovery → Boot from Recovery ISO → reboot.
+
+** 2. SSH in via the droplet console
+
+DO doesn't give SSH access in recovery mode; use the *web console* (DO UI → console).
+
+** 3. Follow steps 3-6 from the Hetzner procedure above.
+
+The disk layout is the same; the only difference is the device path (=/dev/vda= instead of =/dev/sda=).
+
+* Verification
+
+- =ssh <host>= over your normal key succeeds.
+- =bin/smoke-test.sh <host>=  passes.
+
+* Cross-references
+
+- This procedure replaces SSH-based recovery — which is broken when public SSH is broken.
+- [[file:../operations.org][operations.org]] — for the autoUpgrade rollback procedure that's preferable when SSH still works.
