@@ -1,0 +1,39 @@
+#+TITLE: nixos-fossil
+#+OPTIONS: toc:2
+
+* Overview
+
+A NixOS-based fossil-server cluster for self-hosting personal projects.
+Three hosts (canonical + 2 secondaries) replicate via fossil's built-in
+sync. Native TLS, no reverse proxy. Public hosting on GitHub with
+agenix-encrypted secrets.
+
+* Hosts
+
+| Hostname           | Role        | Location            |
+|--------------------+-------------+---------------------|
+| =fossil.exidia.com=    | canonical   | Hetzner DC1         |
+| =s1.fossil.exidia.com= | secondary-1 | Hetzner DC2         |
+| =s2.fossil.exidia.com= | secondary-2 | DigitalOcean        |
+
+* Quick links
+
+- [[file:docs/architecture.org][Architecture]] — why the system looks this way.
+- [[file:docs/setup.org][Setup]] — initial bootstrap, adding a host, adding a repo.
+- [[file:docs/operations.org][Operations]] — routine maintenance, auto-upgrade, secrets, monitoring.
+- [[file:docs/reference.org][Reference]] — module options, secrets catalog, network topology.
+- [[file:docs/runbooks/][Runbooks]] — emergency procedures.
+
+* Local dev
+
+#+begin_src bash
+# Evaluate every host's config (some throw on hardware-config placeholder; see docs)
+nix flake check
+
+# Evaluate one host
+nix eval '.#nixosConfigurations.canonical-bootstrap.config.system.build.toplevel.drvPath' --raw
+#+end_src
+
+* License
+
+(none — private project)
