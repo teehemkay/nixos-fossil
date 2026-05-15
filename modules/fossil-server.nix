@@ -84,5 +84,51 @@ in {
       group = "fossil";   # so the fossil service can read fullchain.pem + key.pem
       reloadServices = [ "fossil-server.service" ];
     };
+
+    systemd.services.fossil-server = {
+      description = "Fossil SCM server (native TLS)";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "network-online.target" "acme-${cfg.domain}.service" ];
+      wants = [ "network-online.target" ];
+
+      serviceConfig = {
+        # Must start as root to bind :443. Fossil reads --cert and --pkey
+        # then chroots into the repoDir and setuids to the fossil user.
+        User = "root";
+        ExecStart = let
+          certDir = "/var/lib/acme/${cfg.domain}";
+        in ''
+          ${pkgs.fossil}/bin/fossil server \
+            --port 443 \
+            --cert ${certDir}/fullchain.pem \
+            --pkey ${certDir}/key.pem \
+            --repolist \
+            --baseurl https://${cfg.domain}/ \
+            --jsmode bundled \
+            ${cfg.repoDir}
+        '';
+        # Notes on the argument shape (verified against fossil's
+        # src/main.c:2976 — `find_option("repolist", 0, 0)`):
+        #   - `--repolist` is a BOOLEAN flag (no value), enabling
+        #     directory-listing behavior when the positional REPOSITORY
+        #     argument is a directory.
+        #   - The REPOSITORY (or directory) is the trailing POSITIONAL
+        #     argument — `${cfg.repoDir}` at the end.
+
+        Restart = "always";
+        RestartSec = 3;
+
+        # systemd hardening: blocks setuid-up, allows fossil's setuid-down.
+        NoNewPrivileges = true;
+        ProtectHome = true;
+        ProtectSystem = "strict";
+        ReadWritePaths = [ "/var/lib/fossil" ];
+        PrivateTmp = true;
+        ProtectKernelTunables = true;
+        ProtectKernelModules = true;
+        ProtectControlGroups = true;
+        RestrictNamespaces = true;
+      };
+    };
   };
 }
