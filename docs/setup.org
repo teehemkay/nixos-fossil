@@ -1,0 +1,38 @@
+#+TITLE: Setup
+#+OPTIONS: toc:2
+
+* Initial bootstrap
+
+This section is for first-time setup of the whole project. Run once.
+
+** 1. Register your SSH key as the agenix admin recipient
+
+agenix uses your SSH ed25519 key as both the recipient (encrypts the
+secrets so you can read them) and the identity (decrypts when you edit
+or rekey). agenix finds it automatically at =~/.ssh/id_ed25519=, so
+no extra flag is needed on any =agenix= command.
+
+Print your SSH public key:
+
+#+begin_src bash
+cat ~/.ssh/id_ed25519.pub
+#+end_src
+
+Edit =secrets/secrets.nix= and replace the =tmk= placeholder string
+with the full line from your =id_ed25519.pub=.
+
+#+begin_src bash
+${EDITOR:-vim} secrets/secrets.nix
+#+end_src
+
+Back up =~/.ssh/id_ed25519= (the private half) somewhere safe — 1Password
+or equivalent. Losing it means losing decrypt access to every secret in
+the repo until you provision a new host whose key is also a recipient.
+
+** 2. Cloudflare account + DNS-01 API token
+
+(documented in a later task)
+
+** 3. Delegate fossil.exidia.com to Cloudflare
+
+(documented in a later task)
