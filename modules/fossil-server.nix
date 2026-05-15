@@ -46,6 +46,26 @@ in {
   };
 
   config = lib.mkIf cfg.enable {
-    # populated by subsequent tasks
+    users.groups.fossil = { };
+    users.users.fossil = {
+      isSystemUser = true;
+      group = "fossil";
+      # Home is /var/lib/fossil so fossil's $HOME/.fossil global config
+      # (the "all repositories" list) lives at /var/lib/fossil/.fossil.
+      # Without an explicit home, NixOS would default to /var/empty and
+      # `fossil all add` would fail silently. createHome ensures the dir
+      # exists with right ownership on first activation.
+      home = "/var/lib/fossil";
+      createHome = true;
+      # Non-login user — no shell, no SSH access.
+      shell = pkgs.shadow + "/bin/nologin";
+    };
+
+    # Ensure the repolist dir exists. We don't strictly need this on top
+    # of createHome (because repoDir is under the home), but being explicit
+    # keeps the mode/owner enforced by NixOS' systemd-tmpfiles.
+    systemd.tmpfiles.rules = [
+      "d ${cfg.repoDir} 0750 fossil fossil -"
+    ];
   };
 }
