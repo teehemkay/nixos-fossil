@@ -67,5 +67,22 @@ in {
     systemd.tmpfiles.rules = [
       "d ${cfg.repoDir} 0750 fossil fossil -"
     ];
+
+    security.acme = {
+      acceptTerms = true;
+      defaults.email = "tmk@fastmail.fm";
+    };
+    security.acme.certs.${cfg.domain} = {
+      dnsProvider = "cloudflare";
+      # The credentials file is sourced as a shell env file. agenix
+      # decrypts cloudflare-dns.age to this path; its contents must be:
+      #
+      #     CLOUDFLARE_DNS_API_TOKEN=<your-token>
+      #
+      # (See docs/setup.org for token-scope guidance.)
+      environmentFile = config.age.secrets.cloudflare-dns.path;
+      group = "fossil";   # so the fossil service can read fullchain.pem + key.pem
+      reloadServices = [ "fossil-server.service" ];
+    };
   };
 }
