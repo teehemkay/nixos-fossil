@@ -18,7 +18,7 @@ for `<host>` in `canonical`, `secondary-1`, `secondary-2`. A `.git/hooks/pre-com
 
 ## Formatting & linting
 
-Format `.nix` files with `nixfmt` (RFC 166 / nixfmt-rfc-style) before committing. Lint with `statix check` (anti-patterns) and `deadnix` (dead code) — both are available globally on this machine.
+Format `.nix` files with `nixfmt` (RFC 166 / nixfmt-rfc-style) before committing. Lint with `statix check` (anti-patterns) and `deadnix` (dead code); `statix` is available globally, `deadnix` is being added.
 
 ## Flake structure
 

@@ -9,8 +9,8 @@ The repository has a `.git/hooks/pre-commit` that runs `nixfmt --check`,
 `statix check`, and evaluates the three `-eval-test` host variants. It works,
 but `.git/hooks/` is not version-controlled: it does not propagate to other
 clones, cannot be reviewed, and depends on `nixfmt` / `statix` being installed
-globally on the machine (`CLAUDE.md` already records that `deadnix` is not yet
-installed — the same fragility).
+globally on the machine. `deadnix` — named as a lint tool in `CLAUDE.md` but
+not yet installed on the dev machine — is the same fragility in miniature.
 
 Git cannot auto-install hooks on clone by design (that would be remote code
 execution on `git clone`). Every distribution mechanism therefore needs one

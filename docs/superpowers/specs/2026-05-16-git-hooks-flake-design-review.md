@@ -66,3 +66,11 @@
 **Summary**: No material findings. The prior fixes are internally consistent: the hook is install-only via `shellHook`, the custom `nix` path is pinned, and the generated pre-commit config is included in rollout and verification. Remaining issues I noticed are wording nits, not implementation blockers.
 
 (no findings)
+
+## Converged — 2026-05-16
+
+**Reason**: Four rounds of adversarial review. Rounds 1-3 each surfaced one material, implementation-relevant issue — an ambient `nix` dependency in the custom hook, a `checks` output advertising an unbuildable derivation, and the un-ignored generated `.pre-commit-config.yaml` — all fixed. Round 4 returned `approve` with no findings. The architecture is settled and the spec is internally consistent.
+
+**Citation check**: 5 in-repo citations verified, 1 deviation addressed. The spec's Problem section mis-attributed to `CLAUDE.md` a claim that `deadnix` is uninstalled; `CLAUDE.md` actually claimed both lint tools were available. The spec was reworded to drop the false attribution, and `CLAUDE.md` was corrected to state `deadnix` is being added.
+
+**Final verdict**: approve (forced).
