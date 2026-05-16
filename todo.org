@@ -1,0 +1,4 @@
+#+TITLE: TODO
+
+* TODO Install the skill-creator plugin and package repo workflows as skills
+Run =/plugin install skill-creator@claude-plugins-official=, then =/skill-creator <name>= to create or refine skills. Candidates worth packaging: the =bin/new-repo.sh= and =bin/smoke-test.sh= workflows, and the agenix secret-rotation procedure from =docs/runbooks/rotate-secrets.org=.
