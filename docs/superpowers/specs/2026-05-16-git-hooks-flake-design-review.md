@@ -58,4 +58,11 @@
 ### Finding 1 — Generated pre-commit config is not added to .gitignore
 - **Disposition**: fixed
 - **Action**: Added rollout step 3 — append `.pre-commit-config.yaml` to `.gitignore` (git-hooks.nix's shellHook generates it on shell entry; upstream flake docs call for ignoring it). Added a verification bullet: after `nix develop`, `git status` shows no new untracked files.
-- **Commit**: not yet committed
+- **Commit**: `f195d83`
+
+## Round 4 — Findings
+
+**Verdict**: approve
+**Summary**: No material findings. The prior fixes are internally consistent: the hook is install-only via `shellHook`, the custom `nix` path is pinned, and the generated pre-commit config is included in rollout and verification. Remaining issues I noticed are wording nits, not implementation blockers.
+
+(no findings)
