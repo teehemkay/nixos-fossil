@@ -14,7 +14,7 @@ A declarative NixOS fossil-server cluster: one canonical host plus two secondari
 nix eval '.#nixosConfigurations.<host>-eval-test.config.system.build.toplevel.drvPath' --raw
 ```
 
-for `<host>` in `canonical`, `secondary-1`, `secondary-2`. A `.git/hooks/pre-commit` (not version-controlled) runs `nixfmt --check`, `statix check`, and these three evaluations on any commit that stages `.nix` files.
+for `<host>` in `canonical`, `secondary-1`, `secondary-2`. The pre-commit hook is defined declaratively in `flake.nix` (via git-hooks.nix) and installs itself into `.git/hooks/pre-commit` when you enter the dev shell — `nix develop`, or `direnv allow` on first use. It runs `nixfmt`, `statix`, and these three `-eval-test` evaluations on any commit that stages `.nix` files.
 
 ## Formatting & linting
 
