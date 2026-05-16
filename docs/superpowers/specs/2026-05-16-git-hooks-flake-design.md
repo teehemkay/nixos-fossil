@@ -106,7 +106,10 @@ That is the same reason `nix flake check` is not a gate here (see Trade-offs).
 2. Add a committed `.envrc` containing `use flake`. `.gitignore` already
    ignores `.direnv`. Each clone runs `direnv allow` once (or plain
    `nix develop`) — the one unavoidable opt-in step.
-3. Update the "Verifying changes" section of `CLAUDE.md`: the hook is now
+3. Add `.pre-commit-config.yaml` to `.gitignore`. git-hooks.nix's `shellHook`
+   generates this file at the repo root on shell entry; upstream flake
+   instructions call for ignoring it so it never dirties the working tree.
+4. Update the "Verifying changes" section of `CLAUDE.md`: the hook is now
    defined in `flake.nix` and self-installs via the dev shell, no longer a
    hand-written script.
 
@@ -116,6 +119,8 @@ That is the same reason `nix flake check` is not a gate here (see Trade-offs).
 - A misformatted `.nix` file staged → commit blocked by `nixfmt-rfc-style`.
 - A clean `.nix` change staged → commit passes all three hooks.
 - A documentation-only commit → all hooks skip (the `\.nix$` filter).
+- After `nix develop`, `git status` shows no new untracked files — the
+  generated `.pre-commit-config.yaml` is gitignored.
 
 ## Trade-offs and non-goals
 

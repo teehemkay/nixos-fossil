@@ -39,4 +39,23 @@
 ### Finding 1 — `checks.pre-commit` is specified as an unbuildable check output
 - **Disposition**: fixed
 - **Action**: Dropped the `checks` output entirely. The git-hooks.nix `run` result is now an internal `let` binding `preCommitHooks`, consumed only for its `shellHook` by the dev shell. Added a "No `checks` output" bullet explaining why (no CI; the eval hook is not sandbox-buildable). Repointed the round-1 custom-hook paragraph to `preCommitHooks`, and removed "no flake `checks` output" from the `.githooks/` rejection rationale since it is no longer a differentiator.
+- **Commit**: `68f5403`
+
+## Round 3 — Findings
+
+**Verdict**: needs-attention
+**Summary**: One material rollout gap remains: the plan installs git-hooks.nix but does not ignore the generated pre-commit config file, so entering the dev shell will leave a generated artifact in the working tree.
+
+### Finding 1 — Generated pre-commit config is not added to .gitignore
+- **File**: `docs/superpowers/specs/2026-05-16-git-hooks-flake-design.md`
+- **Lines**: `106-108`
+- **Confidence**: `0.93`
+- **Body**: The rollout only adds `.envrc` and notes that `.gitignore` already ignores `.direnv`, but git-hooks.nix's shellHook also creates/symlinks `.pre-commit-config.yaml` in the repo root. The current `.gitignore` does not ignore that file, so the first `nix develop` / `direnv allow` will dirty every clone with an untracked generated config. The upstream git-hooks.nix flake instructions explicitly call out adding `/.pre-commit-config.yaml` to `.gitignore` (https://github.com/cachix/git-hooks.nix#flakes-support), so the rollout and verification should include that step.
+- **Recommendation**: Add `.pre-commit-config.yaml` to `.gitignore` as part of the rollout, and include it in verification so `nix develop` leaves no new untracked generated config.
+
+## Round 3 — Addressed
+
+### Finding 1 — Generated pre-commit config is not added to .gitignore
+- **Disposition**: fixed
+- **Action**: Added rollout step 3 — append `.pre-commit-config.yaml` to `.gitignore` (git-hooks.nix's shellHook generates it on shell entry; upstream flake docs call for ignoring it). Added a verification bullet: after `nix develop`, `git status` shows no new untracked files.
 - **Commit**: not yet committed
