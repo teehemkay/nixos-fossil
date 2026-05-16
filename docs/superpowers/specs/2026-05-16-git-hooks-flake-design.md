@@ -26,23 +26,31 @@ Wire [`cachix/git-hooks.nix`](https://github.com/cachix/git-hooks.nix) into
 via the flake's `nixpkgs` rather than relying on a global install.
 
 Two alternatives were considered and rejected: a committed `.githooks/`
-directory with `core.hooksPath` (simpler, but no tool pinning and no flake
-`checks` output), and a hook-manager such as `lefthook` (extra non-Nix
-dependency for a single hook). The flake route is idiomatic for a Nix flake
-repository and fixes the tool-pinning fragility as a side effect.
+directory with `core.hooksPath` (simpler, but no tool pinning — `nixfmt` and
+`statix` would still come from a global install), and a hook-manager such as
+`lefthook` (extra non-Nix dependency for a single hook). The flake route is
+idiomatic for a Nix flake repository and fixes the tool-pinning fragility as a
+side effect.
 
 ## Flake changes
 
 - **New input** `git-hooks` → `github:cachix/git-hooks.nix`, with
   `inputs.nixpkgs.follows = "nixpkgs"` so the lock gains no duplicate nixpkgs.
-- **New `let` bindings:** `devSystem = "aarch64-darwin"` and
-  `pkgs = nixpkgs.legacyPackages.${devSystem}`. The dev shell targets only
-  `aarch64-darwin` — the sole development machine.
-- **New output** `checks.${devSystem}.pre-commit = git-hooks.lib.${devSystem}.run { src = ./.; hooks = {…}; }`.
-  This derivation is the single definition point for the hook set.
+- **New `let` bindings:** `devSystem = "aarch64-darwin"`,
+  `pkgs = nixpkgs.legacyPackages.${devSystem}`, and
+  `preCommitHooks = git-hooks.lib.${devSystem}.run { src = ./.; hooks = {…}; }`.
+  The dev shell targets only `aarch64-darwin` — the sole development machine.
+  `preCommitHooks` is the single definition point for the hook set; it is an
+  internal `let` binding, not a flake output (see below).
 - **New output** `devShells.${devSystem}.default = pkgs.mkShell { … }`, pulling
-  in `self.checks.${devSystem}.pre-commit.shellHook`. Entering the shell
-  installs `.git/hooks/pre-commit`.
+  in `preCommitHooks.shellHook`. Entering the shell installs
+  `.git/hooks/pre-commit`.
+- **No `checks` output.** git-hooks.nix's conventional pattern exposes the hook
+  derivation under `checks` so CI can build it. This repo has no CI, and the
+  `nixos-eval-test` hook cannot run inside a build sandbox (it needs the nix
+  daemon), so a `checks` output would advertise an unbuildable check. The
+  derivation is therefore an internal binding, consumed only for its
+  `shellHook`.
 - **Untouched:** `nixosConfigurations` and the existing `system = "x86_64-linux"`
   binding. That binding is consumed only by `nixpkgs.lib.nixosSystem` for the
   host configurations, which are genuine x86_64 Linux servers. A NixOS
@@ -85,12 +93,10 @@ to `PATH`, consistent with the design's "no global tools" goal — the built-in
 way.
 
 This hook runs at **pre-commit time**, where the `nix` daemon and the flake's
-evaluation cache are reachable. It is *not* exercised by *building* the
-`checks.${devSystem}.pre-commit` derivation: that derivation is consumed only
-for its `shellHook` (it defines and installs the hook set), never built as a
-CI gate. Building it would run `nix eval` inside a build sandbox with no daemon
-access — which is precisely why `nix flake check` is not a gate here (see
-Trade-offs).
+evaluation cache are reachable. The `preCommitHooks` derivation is consumed
+only for its `shellHook` and is deliberately not exposed as a flake output:
+building it would run `nix eval` inside a build sandbox with no daemon access.
+That is the same reason `nix flake check` is not a gate here (see Trade-offs).
 
 ## Rollout
 

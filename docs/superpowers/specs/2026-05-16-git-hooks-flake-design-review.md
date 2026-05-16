@@ -20,4 +20,23 @@
 ### Finding 1 — Custom eval hook still depends on an ambient `nix` executable
 - **Disposition**: fixed
 - **Action**: Custom hook sketch now calls `${pkgs.nix}/bin/nix` instead of bare `nix`. Added a paragraph stating the hook runs at pre-commit time (daemon reachable) and that the `checks.${devSystem}.pre-commit` derivation is consumed only for its `shellHook`, never built as a gate — so the nested-nix-in-sandbox concern does not arise.
+- **Commit**: `dc69097`
+
+## Round 2 — Findings
+
+**Verdict**: needs-attention
+**Summary**: One material issue remains: the revised spec fixes the ambient `nix` dependency, but now explicitly plans to expose a check derivation that the spec says must never be built.
+
+### Finding 1 — `checks.pre-commit` is specified as an unbuildable check output
+- **File**: `docs/superpowers/specs/2026-05-16-git-hooks-flake-design.md`
+- **Lines**: `41-93`
+- **Confidence**: `0.89`
+- **Body**: The design adds `checks.${devSystem}.pre-commit = git-hooks.lib.${devSystem}.run ...`, but later says that derivation is consumed only for its `shellHook`, never built, because building it would run `nix eval` inside a sandbox without daemon access. That makes the flake expose a known-broken `checks` output. This is more than a naming nit: `nix flake check` and `nix build .#checks.${devSystem}.pre-commit` conventionally build `checks`, and the earlier alternative analysis rejects `.githooks/` partly because it lacks a flake `checks` output. If the pre-commit derivation cannot be built, it should not be presented as a usable check output, or the hook set should be split so only build-safe hooks live under `checks`.
+- **Recommendation**: Revise the design to avoid exposing the sandbox-incompatible hook as `checks.${devSystem}.pre-commit`, or split the design into a buildable check output and an install-only hook definition used by the dev shell.
+
+## Round 2 — Addressed
+
+### Finding 1 — `checks.pre-commit` is specified as an unbuildable check output
+- **Disposition**: fixed
+- **Action**: Dropped the `checks` output entirely. The git-hooks.nix `run` result is now an internal `let` binding `preCommitHooks`, consumed only for its `shellHook` by the dev shell. Added a "No `checks` output" bullet explaining why (no CI; the eval hook is not sandbox-buildable). Repointed the round-1 custom-hook paragraph to `preCommitHooks`, and removed "no flake `checks` output" from the `.githooks/` rejection rationale since it is no longer a differentiator.
 - **Commit**: not yet committed
