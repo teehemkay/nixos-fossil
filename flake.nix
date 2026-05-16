@@ -93,7 +93,7 @@
       preCommitHooks = git-hooks.lib.${devSystem}.run {
         src = ./.;
         hooks = {
-          nixfmt-rfc-style.enable = true;
+          nixfmt.enable = true;
           statix.enable = true;
           nixos-eval-test = {
             enable = true;
