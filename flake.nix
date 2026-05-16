@@ -29,6 +29,12 @@
     let
       system = "x86_64-linux";
 
+      # Developer machine. The dev shell and its git-hooks are built for this
+      # platform. The host configs stay x86_64-linux — they describe remote
+      # servers, not this machine.
+      devSystem = "aarch64-darwin";
+      pkgs = nixpkgs.legacyPackages.${devSystem};
+
       # Helper: build a full nixosConfiguration for one host.
       # Hardware-config is composed here (not inside the host file) so the
       # eval-test helper below can swap it for a non-throwing fixture.
@@ -78,6 +84,33 @@
             ./hosts/_fixture-hardware.nix
           ];
         };
+
+      # Pre-commit hook set, built by git-hooks.nix. Consumed only for its
+      # shellHook, which installs .git/hooks/pre-commit on dev-shell entry.
+      # Deliberately NOT exposed as a flake `checks` output: the
+      # nixos-eval-test hook runs `nix eval`, which needs the nix daemon and
+      # cannot run inside a build sandbox.
+      preCommitHooks = git-hooks.lib.${devSystem}.run {
+        src = ./.;
+        hooks = {
+          nixfmt-rfc-style.enable = true;
+          statix.enable = true;
+          nixos-eval-test = {
+            enable = true;
+            name = "nixos eval-test";
+            entry = "${pkgs.writeShellScript "nixos-eval-test" ''
+              set -e
+              for host in canonical secondary-1 secondary-2; do
+                ${pkgs.nix}/bin/nix eval --no-warn-dirty --raw \
+                  ".#nixosConfigurations.$host-eval-test.config.system.build.toplevel.drvPath" \
+                  >/dev/null
+              done
+            ''}";
+            files = "\\.nix$";
+            pass_filenames = false;
+          };
+        };
+      };
     in
     {
       nixosConfigurations = {
@@ -90,6 +123,12 @@
         canonical-eval-test = mkHostEvalTest "canonical";
         secondary-1-eval-test = mkHostEvalTest "secondary-1";
         secondary-2-eval-test = mkHostEvalTest "secondary-2";
+      };
+
+      # Dev shell: entering it runs preCommitHooks.shellHook, which installs
+      # .git/hooks/pre-commit. Built for the developer's machine (devSystem).
+      devShells.${devSystem}.default = pkgs.mkShell {
+        inherit (preCommitHooks) shellHook;
       };
     };
 }
