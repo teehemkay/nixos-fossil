@@ -69,7 +69,7 @@ nixos-eval-test = {
   entry = "${pkgs.writeShellScript "nixos-eval-test" ''
     set -e
     for host in canonical secondary-1 secondary-2; do
-      nix eval --no-warn-dirty --raw \
+      ${pkgs.nix}/bin/nix eval --no-warn-dirty --raw \
         ".#nixosConfigurations.$host-eval-test.config.system.build.toplevel.drvPath" \
         >/dev/null
     done
@@ -78,6 +78,19 @@ nixos-eval-test = {
   pass_filenames = false;
 };
 ```
+
+The `nix` executable is referenced as `${pkgs.nix}/bin/nix` rather than left
+to `PATH`, consistent with the design's "no global tools" goal — the built-in
+`nixfmt-rfc-style` and `statix` hooks already get their tools pinned the same
+way.
+
+This hook runs at **pre-commit time**, where the `nix` daemon and the flake's
+evaluation cache are reachable. It is *not* exercised by *building* the
+`checks.${devSystem}.pre-commit` derivation: that derivation is consumed only
+for its `shellHook` (it defines and installs the hook set), never built as a
+CI gate. Building it would run `nix eval` inside a build sandbox with no daemon
+access — which is precisely why `nix flake check` is not a gate here (see
+Trade-offs).
 
 ## Rollout
 
