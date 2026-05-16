@@ -7,11 +7,11 @@ A NixOS-based fossil-server cluster for self-hosting personal projects. Three ho
 
 * Hosts
 
-| Hostname           | Role        | Location            |
-|--------------------+-------------+---------------------|
-| =fossil.exidia.com=    | canonical   | Hetzner DC1         |
-| =s1.fossil.exidia.com= | secondary-1 | Hetzner DC2         |
-| =s2.fossil.exidia.com= | secondary-2 | DigitalOcean        |
+| Hostname             | Role        | Location     |
+|----------------------+-------------+--------------|
+| =fossil.exidia.com=    | canonical   | Hetzner DC1  |
+| =s1.fossil.exidia.com= | secondary-1 | Hetzner DC2  |
+| =s2.fossil.exidia.com= | secondary-2 | DigitalOcean |
 
 * Quick links
 
