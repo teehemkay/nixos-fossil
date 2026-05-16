@@ -1,4 +1,10 @@
-{ config, lib, pkgs, inputs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  inputs,
+  ...
+}:
 
 {
   imports = [
@@ -49,13 +55,18 @@
   };
 
   environment.systemPackages = map lib.lowPrio [
-    pkgs.vim pkgs.curl pkgs.gitMinimal
+    pkgs.vim
+    pkgs.curl
+    pkgs.gitMinimal
   ];
 
   # Public firewall: SSH and fossil only. Tailscale opens UDP 41641 itself.
   networking.firewall = {
     enable = true;
-    allowedTCPPorts = [ 22 443 ];
+    allowedTCPPorts = [
+      22
+      443
+    ];
   };
 
   # Kernel-level hardening. Zero maintenance cost, real defensive value.

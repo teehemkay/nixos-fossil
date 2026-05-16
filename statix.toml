@@ -1,0 +1,6 @@
+# statix lint configuration.
+#
+# repeated_keys (W20) is disabled: the host and module files deliberately use
+# flat attribute paths (e.g. boot.initrd.availableKernelModules alongside
+# boot.kernelModules) — idiomatic NixOS style we intend to keep.
+disabled = ["repeated_keys"]

@@ -1,12 +1,22 @@
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
-let cfg = config.services.fossilServer;
-in {
+let
+  cfg = config.services.fossilServer;
+in
+{
   options.services.fossilServer = {
     enable = lib.mkEnableOption "Fossil server (native TLS, repolist, optional sync timer)";
 
     role = lib.mkOption {
-      type = lib.types.enum [ "canonical" "secondary" ];
+      type = lib.types.enum [
+        "canonical"
+        "secondary"
+      ];
       description = "Cluster role. Only secondaries run the sync timer.";
     };
 
@@ -81,32 +91,37 @@ in {
       #
       # (See docs/setup.org for token-scope guidance.)
       environmentFile = config.age.secrets.cloudflare-dns.path;
-      group = "fossil";   # so the fossil service can read fullchain.pem + key.pem
+      group = "fossil"; # so the fossil service can read fullchain.pem + key.pem
       reloadServices = [ "fossil-server.service" ];
     };
 
     systemd.services.fossil-server = {
       description = "Fossil SCM server (native TLS)";
       wantedBy = [ "multi-user.target" ];
-      after = [ "network-online.target" "acme-${cfg.domain}.service" ];
+      after = [
+        "network-online.target"
+        "acme-${cfg.domain}.service"
+      ];
       wants = [ "network-online.target" ];
 
       serviceConfig = {
         # Must start as root to bind :443. Fossil reads --cert and --pkey
         # then chroots into the repoDir and setuids to the fossil user.
         User = "root";
-        ExecStart = let
-          certDir = "/var/lib/acme/${cfg.domain}";
-        in ''
-          ${pkgs.fossil}/bin/fossil server \
-            --port 443 \
-            --cert ${certDir}/fullchain.pem \
-            --pkey ${certDir}/key.pem \
-            --repolist \
-            --baseurl https://${cfg.domain}/ \
-            --jsmode bundled \
-            ${cfg.repoDir}
-        '';
+        ExecStart =
+          let
+            certDir = "/var/lib/acme/${cfg.domain}";
+          in
+          ''
+            ${pkgs.fossil}/bin/fossil server \
+              --port 443 \
+              --cert ${certDir}/fullchain.pem \
+              --pkey ${certDir}/key.pem \
+              --repolist \
+              --baseurl https://${cfg.domain}/ \
+              --jsmode bundled \
+              ${cfg.repoDir}
+          '';
         # Notes on the argument shape (verified against fossil's
         # src/main.c:2976 — `find_option("repolist", 0, 0)`):
         #   - `--repolist` is a BOOLEAN flag (no value), enabling
@@ -147,7 +162,10 @@ in {
 
     systemd.services.fossil-sync = lib.mkIf (cfg.role == "secondary") {
       description = "Fossil cluster sync (oneshot)";
-      after = [ "network-online.target" "fossil-server.service" ];
+      after = [
+        "network-online.target"
+        "fossil-server.service"
+      ];
       wants = [ "network-online.target" ];
       serviceConfig = {
         Type = "oneshot";
@@ -168,5 +186,5 @@ in {
         );
       };
     };
-  };  # end of `config = lib.mkIf cfg.enable { ... }`
-}     # end of the module function
+  }; # end of `config = lib.mkIf cfg.enable { ... }`
+} # end of the module function
