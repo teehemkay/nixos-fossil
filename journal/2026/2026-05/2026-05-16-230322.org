@@ -1,0 +1,34 @@
+#+TITLE: git-hooks.nix flake integration — /init that became a feature
+#+DATE: [2026-05-16 Sat 23:03]
+#+PROJECT: nixos-fossil
+
+* Context
+
+Context: the git-hooks.nix flake integration ([[file:~/dev/my/nixos-fossil/docs/superpowers/specs/2026-05-16-git-hooks-flake-design.md][spec]], [[file:~/dev/my/nixos-fossil/docs/superpowers/plans/2026-05-16-git-hooks-flake.md][plan]]) (executing-plan, post-merge and pushed).
+Triggered by a bare =/init= invocation that escalated, question by question, into a full brainstorm→spec→adversarial-review→plan→implement→merge cycle.
+
+The session began as =/init= (set up a minimal CLAUDE.md). That produced CLAUDE.md, =statix.toml=, a hand-written =.git/hooks/pre-commit=, and a tree-wide nixfmt reformat ([[orgit-rev:~/dev/my/nixos-fossil::becbd9f998007a7a5dbd30f7208692e5e6bc052a][becbd9f]]). tmk then asked "what's the best practice to make such a git hook pervasive across all clones" — and accepted the idiomatic answer, which turned into the git-hooks.nix feature. Everything landed on =main= and was pushed to git.exidia.com (final commit [[orgit-rev:~/dev/my/nixos-fossil::c285404f04468527d921d33bfaa3904102f2f6fb][c285404]]). tmk had unrelated uncommitted provisioning work (=README.org=, =docs/setup.org=, =secrets/secrets.nix=) throughout — kept carefully out of every commit.
+
+* Project Notes
+
+** Key Decisions
+
+- =nix flake check= is NOT a usable gate in this repo. The full =mkHost= configs throw on the placeholder =*-hardware.nix= until a host is deployed. The real evaluation gate is the three =-eval-test= variants (=nix eval '.#nixosConfigurations.<host>-eval-test...drvPath'=). This is load-bearing — any future CI or hook work must use the eval-test variants, never =nix flake check=.
+- The pre-commit hook is now defined in =flake.nix= via git-hooks.nix and self-installs from the devShell =shellHook=. =devSystem = "aarch64-darwin"= is a separate =let= binding from =system = "x86_64-linux"= — the dev shell builds for the Mac, the host configs for the servers.
+- No flake =checks= output. git-hooks.nix's conventional pattern exposes the hook derivation under =checks=, but the custom =nixos-eval-test= hook runs =nix eval= and cannot run in a build sandbox, so =preCommitHooks= is an internal =let= binding consumed only for =shellHook=.
+- =statix.toml= disables =repeated_keys= (W20): the host/module files deliberately use flat attribute paths (=boot.initrd.x= next to =boot.kernelModules=). Idiomatic NixOS, kept on purpose.
+- Whole =.nix= tree was reformatted to nixfmt-rfc-style ([[orgit-rev:~/dev/my/nixos-fossil::becbd9f998007a7a5dbd30f7208692e5e6bc052a][becbd9f]]) — the repo had never adopted a formatter; all 10 tracked =.nix= files were unformatted.
+
+** Gotcha — the hand-written hook was first designed around a command that throws
+
+The =.git/hooks/pre-commit= written during =/init= initially ran =nix flake check=. That command throws in this repo (placeholder hardware configs). The CLAUDE.md "Verifying changes" section I wrote made the same mistake — asserted =nix flake check= "evaluates every host config" as a gate. Both were caught only by *running* the command, not by reasoning about it. Fixed before anything shipped, but the lesson stands: a verification step is itself unverified until executed.
+
+* Technical Insights
+
+** git cannot auto-install hooks on clone — and the idiomatic Nix workaround
+
+Git deliberately does not run hooks from a fresh clone (that would be RCE on =git clone=). Every distribution mechanism therefore needs exactly one opt-in step per clone. The options ranked: committed =.githooks/= + =core.hooksPath= (simple, no tool pinning); a hook-manager like lefthook (extra dependency); or — idiomatic for a flake repo — git-hooks.nix wired into the devShell, where the =shellHook= installs the hook on shell entry and a committed =.envrc= makes that automatic on =cd= for direnv users. The Nix route also pins the hook tools via nixpkgs instead of relying on a global install.
+
+** git-hooks.nix custom hooks: pin tools, mind the sandbox
+
+Two things the spec's adversarial review surfaced. (1) A custom hook's =entry= should reference =${pkgs.nix}/bin/nix=, not bare =nix= — the built-in =nixfmt-rfc-style=/=statix= hooks get pinned automatically, custom ones do not. (2) If any hook cannot run inside a build sandbox (ours runs =nix eval=, which needs the daemon), the hook set must not be exposed as a =checks= output, because =nix flake check= / =nix build .#checks...= build =checks= by convention. Round 1's fix for (1) actually introduced (2) — I exposed =checks= and then wrote "never build it", a self-contradiction the next review round caught.
