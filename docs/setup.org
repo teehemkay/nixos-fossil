@@ -40,7 +40,7 @@ Steps 2-5 below each populate one of the =secrets/*.age= files. The repo ships t
 
 **Workaround: for the FIRST encryption of each secret, `rm` the placeholder immediately before `agenix -e`.** Once a real encrypted file exists, subsequent rotations use plain =agenix -e= without the =rm= (the file is now valid encrypted content).
 
-Each step below shows the =rm secrets/<name>.age && agenix -e secrets/<name>.age= form explicitly.
+agenix resolves its rules file as =./secrets.nix=, so every =agenix= command below is run from the =secrets/= directory and names the file with no directory prefix. Each step shows the =cd ~/dev/my/nixos-fossil/secrets= + =rm <name>.age && agenix -e <name>.age= form explicitly.
 
 *** 2. Encrypt the fossil-sync password
 
@@ -49,8 +49,9 @@ This password is embedded into HTTPS URLs by =bin/new-repo.sh= and the rotation 
 Do NOT substitute =openssl rand -base64= or similar — those generate =+/= characters that break URL parsing.
 
 #+begin_src bash
+cd ~/dev/my/nixos-fossil/secrets
 LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 64 > /tmp/sync.pass
-rm secrets/fossil-sync.age && agenix -e secrets/fossil-sync.age
+rm fossil-sync.age && agenix -e fossil-sync.age
 # paste contents of /tmp/sync.pass; one line, no trailing newline
 rm /tmp/sync.pass
 #+end_src
@@ -60,8 +61,9 @@ rm /tmp/sync.pass
 Generate a yescrypt-hashed password (this is the breaking-glass console password):
 
 #+begin_src bash
+cd ~/dev/my/nixos-fossil/secrets
 mkpasswd -m yescrypt    # type a strong password; copy the entire $y$...$ hash
-rm secrets/tmk-password.age && agenix -e secrets/tmk-password.age
+rm tmk-password.age && agenix -e tmk-password.age
 # paste the hash; one line
 #+end_src
 
@@ -77,9 +79,10 @@ At https://healthchecks.io:
 Encrypt the URLs:
 
 #+begin_src bash
-rm secrets/healthchecks-secondary-1.age && agenix -e secrets/healthchecks-secondary-1.age
+cd ~/dev/my/nixos-fossil/secrets
+rm healthchecks-secondary-1.age && agenix -e healthchecks-secondary-1.age
 # paste URL, one line
-rm secrets/healthchecks-secondary-2.age && agenix -e secrets/healthchecks-secondary-2.age
+rm healthchecks-secondary-2.age && agenix -e healthchecks-secondary-2.age
 # paste URL, one line
 #+end_src
 
@@ -90,10 +93,11 @@ In Tailscale admin → Keys, create three /tagged/, /one-time/, /pre-approved/, 
 Encrypt each:
 
 #+begin_src bash
-rm secrets/tailscale-authkey-canonical.age && agenix -e secrets/tailscale-authkey-canonical.age
+cd ~/dev/my/nixos-fossil/secrets
+rm tailscale-authkey-canonical.age && agenix -e tailscale-authkey-canonical.age
 # paste auth key
-rm secrets/tailscale-authkey-secondary-1.age && agenix -e secrets/tailscale-authkey-secondary-1.age
-rm secrets/tailscale-authkey-secondary-2.age && agenix -e secrets/tailscale-authkey-secondary-2.age
+rm tailscale-authkey-secondary-1.age && agenix -e tailscale-authkey-secondary-1.age
+rm tailscale-authkey-secondary-2.age && agenix -e tailscale-authkey-secondary-2.age
 #+end_src
 
 *** 6. Push to git.exidia.com
@@ -175,7 +179,7 @@ canonicalHost = [ "ssh-ed25519 AAAA...captured...pubkey root@canonical" ];
 Then re-encrypt every secret whose recipient list includes this host:
 
 #+begin_src bash
-agenix --rekey
+(cd ~/dev/my/nixos-fossil/secrets && agenix --rekey)
 #+end_src
 
 Commit BOTH the rekey AND the generated hardware-config that =nixos-anywhere= produced in step 4. Without committing the hardware-config, =hosts/<hostname>-hardware.nix= on =git.exidia.com= remains the throwing placeholder, and =system.autoUpgrade= (which pulls from =git+https://git.exidia.com/tmk/nixos-fossil?ref=main#<host>=) will fail to evaluate on the next scheduled run, blocking kernel patches:
