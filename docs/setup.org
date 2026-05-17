@@ -52,7 +52,8 @@ Do NOT substitute =openssl rand -base64= or similar — those generate =+/= char
 cd ~/dev/my/nixos-fossil/secrets
 LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 64 > /tmp/sync.pass
 rm fossil-sync.age && agenix -e fossil-sync.age
-# paste contents of /tmp/sync.pass; one line, no trailing newline
+# paste contents of /tmp/sync.pass; one line (vim's trailing newline is
+# harmless — bin/new-repo.sh reads the password with $(cat ...), which strips it)
 rm /tmp/sync.pass
 #+end_src
 

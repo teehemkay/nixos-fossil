@@ -20,7 +20,7 @@ Lookup material. Open this when you need to remember the exact name or shape of 
 
 | File                                          | Purpose                                                 | Format                                                   | Read by                            |
 |-----------------------------------------------+---------------------------------------------------------+----------------------------------------------------------+------------------------------------|
-| =fossil-sync.age=                               | Fossil sync user password (cluster-wide)                | Plain text, one line, no trailing newline                | =bin/new-repo.sh=, sync stored URLs |
+| =fossil-sync.age=                               | Fossil sync user password (cluster-wide)                | Plain text, one line; trailing newline OK                | =bin/new-repo.sh=, sync stored URLs |
 | =tmk-password.age=                              | tmk's console-fallback yescrypt hash                    | One line =$y$...$=                                         | PAM (via =hashedPasswordFile=)       |
 | =tailscale-authkey-<host>.age=                  | Per-host Tailscale auth key (one-time, tagged)          | One line =tskey-auth-...=                                  | =services.tailscale.authKeyFile=     |
 | =healthchecks-<host>.age=                       | Per-secondary hc.io ping URL                            | One line =https://hc-ping.com/<uuid>=                      | =fossil-sync.service ExecStartPost=  |
