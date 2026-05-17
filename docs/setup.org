@@ -134,8 +134,8 @@ End-to-end procedure for bringing up a new fossil server.
 
 In the =exidia.com= zone (at Hover), add an A record pointing at the VM's IPv4 from step 1:
 - =fossil= for canonical
-- =s1= for secondary-1
-- =s2= for secondary-2
+- =fossil1= for secondary-1
+- =fossil2= for secondary-2
 
 This record MUST exist before step 6 — ACME's HTTP-01 challenge validates the cert by reaching the host at this name on :80. The explicit record also overrides =exidia.com='s wildcard =*= for that name.
 
@@ -196,7 +196,7 @@ This is the first activation that references agenix secrets. =security.acme= iss
 
 *** 7. Smoke test
 
-The argument is the DNS name fossil serves on for that host, NOT the NixOS hostname. Use =fossil.exidia.com= for canonical, =s1.fossil.exidia.com= for secondary-1, =s2.fossil.exidia.com= for secondary-2.
+The argument is the DNS name fossil serves on for that host, NOT the NixOS hostname. Use =fossil.exidia.com= for canonical, =fossil1.exidia.com= for secondary-1, =fossil2.exidia.com= for secondary-2.
 
 #+begin_src bash
 bin/smoke-test.sh <dns-name>
@@ -240,7 +240,7 @@ The script:
 
 - =bin/new-repo.sh= exits 0.
 - Visit =https://fossil.exidia.com/<reponame>/= in a browser — fossil's setup-users page appears.
-- After ≤5 min, =https://s1.fossil.exidia.com/<reponame>/= and =https://s2.fossil.exidia.com/<reponame>/= serve the same content.
+- After ≤5 min, =https://fossil1.exidia.com/<reponame>/= and =https://fossil2.exidia.com/<reponame>/= serve the same content.
 
 ** Post-creation: bootstrap the admin user
 
@@ -252,8 +252,8 @@ If =new-repo.sh= fails partway, remove the partially-created repo file from any 
 
 #+begin_src bash
 ssh canonical 'sudo rm /var/lib/fossil/museum/<reponame>.fossil'
-ssh s1.fossil.exidia.com 'sudo rm /var/lib/fossil/museum/<reponame>.fossil'
-ssh s2.fossil.exidia.com 'sudo rm /var/lib/fossil/museum/<reponame>.fossil'
+ssh fossil1.exidia.com 'sudo rm /var/lib/fossil/museum/<reponame>.fossil'
+ssh fossil2.exidia.com 'sudo rm /var/lib/fossil/museum/<reponame>.fossil'
 #+end_src
 
 Then re-run the script.

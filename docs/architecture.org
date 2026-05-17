@@ -8,18 +8,17 @@ Explain *why* the cluster is shaped the way it is. Useful when revisiting a deci
 * Topology
 
 #+begin_src
-        ┌───────────────────────┐
-        │   fossil.exidia.com   │  ← canonical (Hetzner DC1)
-        │     (authoritative)   │
-        └───────────┬───────────┘
-                    │ pulls + pushes every 5 min
-       ┌────────────┼────────────┐
-       │            │            │
-┌──────▼─────┐ ┌────▼───────┐
-│ s1.fossil  │ │ s2.fossil  │  ← secondaries (Hetzner DC2 + DO)
-│ .exidia    │ │ .exidia    │     accept user writes locally;
-│ .com       │ │ .com       │     converge via canonical
-└────────────┘ └────────────┘
+            ┌───────────────────────┐
+            │   fossil.exidia.com   │  ← canonical (Hetzner DC1)
+            │     (authoritative)   │
+            └───────────┬───────────┘
+                        │ pulls + pushes every 5 min
+            ┌───────────┴───────────┐
+            │                       │
+  ┌─────────▼──────────┐ ┌──────────▼─────────┐
+  │ fossil1.exidia.com │ │ fossil2.exidia.com │  ← secondaries (Hetzner DC2 + DO)
+  │   (Hetzner DC2)    │ │   (DigitalOcean)   │     accept user writes locally;
+  └────────────────────┘ └────────────────────┘     converge via canonical
 #+end_src
 
 Convergence:

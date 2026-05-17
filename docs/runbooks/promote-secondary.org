@@ -42,7 +42,7 @@ The new canonical no longer syncs from itself. Edit =hosts/<promoted>.nix= to ch
 services.fossilServer = {
   enable = true;
   role = "canonical";   # was "secondary"
-  domain = "fossil.exidia.com";   # was e.g. "s1.fossil.exidia.com"
+  domain = "fossil.exidia.com";   # was e.g. "fossil1.exidia.com"
   # remove healthcheckUrlFile
 };
 #+end_src

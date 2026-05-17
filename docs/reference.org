@@ -34,8 +34,8 @@ Generation steps for each — see [[file:setup.org][setup.org]].
 - Registrar: Hover; zone =exidia.com= hosted at Hover's DNS.
 - Three plain =A= (and optionally =AAAA=) records live directly in the =exidia.com= zone:
   - =fossil= → canonical's IP
-  - =s1= → secondary-1's IP
-  - =s2= → secondary-2's IP
+  - =fossil1= → secondary-1's IP
+  - =fossil2= → secondary-2's IP
 - No zone delegation and no Cloudflare: ACME uses HTTP-01, which needs no DNS API. These explicit records override =exidia.com='s wildcard =*= record for those names.
 
 ** Firewall (every host)

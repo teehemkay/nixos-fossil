@@ -49,7 +49,7 @@
   services.fossilServer = {
     enable = true;
     role = "secondary";
-    domain = "s2.fossil.exidia.com";
+    domain = "fossil2.exidia.com";
     healthcheckUrlFile = config.age.secrets."healthchecks-secondary-2".path;
   };
 

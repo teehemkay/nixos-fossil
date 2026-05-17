@@ -34,7 +34,7 @@ if ! [[ "$REPO" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]]; then
 fi
 
 CANONICAL="fossil.exidia.com"
-SECONDARIES=("s1.fossil.exidia.com" "s2.fossil.exidia.com")
+SECONDARIES=("fossil1.exidia.com" "fossil2.exidia.com")
 # Per-host constants (REPO_DIR, SYNC_CRED_FILE, SUDO_AS_FOSSIL) are
 # defined inside each remote heredoc — they run on the remote host, not
 # locally. Don't hoist them up here; outer-scope copies would be unused
