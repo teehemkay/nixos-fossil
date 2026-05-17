@@ -11,7 +11,7 @@ First-time setup of the project. Run once.
 
 - Hetzner Cloud account.
 - DigitalOcean account (only when bringing up =secondary-2=).
-- Local =age=, =agenix=, =nix=, =ssh=, =curl=, =openssl= installed.
+- Local =nix=, =ssh=, =curl=, =openssl= installed. (=age= and =agenix= are provided by the flake dev shell — run =nix develop=, or =direnv allow= on first use.)
 - This repo cloned at =~/dev/my/nixos-fossil=.
 
 ** Procedure
@@ -44,12 +44,12 @@ Each step below shows the =rm secrets/<name>.age && agenix -e secrets/<name>.age
 
 *** 2. Encrypt the fossil-sync password
 
-This password is embedded into HTTPS URLs by =bin/new-repo.sh= and the rotation runbook (=https://syncuser:$PASS@.../...=), so it MUST be URL-safe — no =@=, =:=, =/=, =%=, =?=, =#=, =+=, or whitespace. =pwgen -s= (the =-s= flag means "completely random, no human-friendly substitutions") produces alphanumeric output which is safe.
+This password is embedded into HTTPS URLs by =bin/new-repo.sh= and the rotation runbook (=https://syncuser:$PASS@.../...=), so it MUST be URL-safe — no =@=, =:=, =/=, =%=, =?=, =#=, =+=, or whitespace. The command below draws 64 alphanumeric characters straight from =/dev/urandom= — URL-safe, with no dependency beyond coreutils.
 
 Do NOT substitute =openssl rand -base64= or similar — those generate =+/= characters that break URL parsing.
 
 #+begin_src bash
-pwgen -s 64 1 > /tmp/sync.pass     # alphanumeric, URL-safe; 64 chars of entropy
+LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 64 > /tmp/sync.pass
 rm secrets/fossil-sync.age && agenix -e secrets/fossil-sync.age
 # paste contents of /tmp/sync.pass; one line, no trailing newline
 rm /tmp/sync.pass

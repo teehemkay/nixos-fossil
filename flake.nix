@@ -126,9 +126,16 @@
       };
 
       # Dev shell: entering it runs preCommitHooks.shellHook, which installs
-      # .git/hooks/pre-commit. Built for the developer's machine (devSystem).
+      # .git/hooks/pre-commit, and provides the secrets tooling the bootstrap
+      # and rotate-secrets workflows need (agenix to manage recipients, age as
+      # the underlying encrypt/decrypt). Built for the developer's machine
+      # (devSystem).
       devShells.${devSystem}.default = pkgs.mkShell {
         inherit (preCommitHooks) shellHook;
+        packages = [
+          agenix.packages.${devSystem}.default
+          pkgs.age
+        ];
       };
     };
 }
