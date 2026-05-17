@@ -1,4 +1,4 @@
-#+TITLE: Debug TLS cert (ACME / DNS-01) failure
+#+TITLE: Debug TLS cert (ACME / HTTP-01) failure
 #+OPTIONS: toc:2
 
 * Purpose
@@ -14,7 +14,7 @@ Symptoms:
 * Prerequisites
 
 - SSH access to the affected host.
-- Cloudflare admin access (web UI).
+- Access to the =exidia.com= DNS zone (to verify the host's A record).
 
 * Procedure
 
@@ -27,23 +27,23 @@ ssh <host> 'journalctl -u acme-<domain>.service -n 200 --no-pager'
 
 Common errors and fixes:
 
-| Error fragment                              | Likely cause                                                                  |
-|---------------------------------------------+-------------------------------------------------------------------------------|
-| =could not find zone for domain=              | =fossil.exidia.com= is not delegated to Cloudflare. Check NS at Hover.        |
-| =authentication failed=                       | Cloudflare API token is wrong/revoked. See [[file:rotate-secrets.org][rotate-secrets]] → cloudflare-dns.       |
+| Error fragment                              | Likely cause                                                                   |
+|---------------------------------------------+--------------------------------------------------------------------------------|
+| =connection refused= / =timeout= on :80       | Port 80 not reachable. Check =networking.firewall= and the provider firewall.   |
+| =404= on the challenge path                   | Something else answers :80, or the A record points elsewhere. Verify both.      |
+| =DNS problem= / =NXDOMAIN=                     | The host's =A= record is missing or wrong. Check the =exidia.com= zone.         |
 | =rate limit exceeded=                         | Let's Encrypt rate-limit hit (5 duplicate certs per week). Wait or use staging. |
-| =CLOUDFLARE_DNS_API_TOKEN not set=            | =cloudflare-dns.age= contents not in the expected env-file shape.             |
-| =timeout waiting for DNS=                     | DNS-01 record propagation slow. Wait + retry.                                  |
 
-** 2. Inspect the agenix-decrypted credential file
+** 2. Verify DNS and :80 reachability
+
+HTTP-01 needs the host's =A= record to resolve to its real IP, and Let's Encrypt to reach :80 inbound.
 
 #+begin_src bash
-ssh <host> 'sudo cat /run/agenix/cloudflare-dns'
+dig +short <domain>                                        # must return the host's IP
+curl -sS -o /dev/null -w '%{http_code}\n' "http://<domain>/"  # is :80 reachable?
 #+end_src
 
-Expected first (only) line: =CLOUDFLARE_DNS_API_TOKEN=<token>=
-
-If the format is wrong (e.g. raw token without the =VAR== prefix), re-encrypt via [[file:rotate-secrets.org][rotate-secrets]] → cloudflare-dns and ensure the file is an env file.
+If =:80= is unreachable, check the NixOS firewall (=networking.firewall.allowedTCPPorts= must include =80=) and the cloud provider's own firewall / security group.
 
 ** 3. Force an early retry
 
@@ -80,5 +80,4 @@ ACME failures don't break the running fossil-server (it keeps the old cert in me
 
 * Cross-references
 
-- [[file:rotate-secrets.org][rotate-secrets]] for cloudflare-dns.age changes.
-- [[file:../setup.org#cloudflare-account-dns-01-api-token][setup.org → Cloudflare token]] for the token-scope requirements.
+- [[file:../setup.org][setup.org]] — the "Adding a host" DNS-record step.

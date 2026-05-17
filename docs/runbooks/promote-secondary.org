@@ -10,7 +10,7 @@ This is a *manual* procedure. No automatic failover in v1.
 * Prerequisites
 
 - A secondary that's reachable, up-to-date (=fossil all sync -u= recently succeeded), and serving traffic.
-- Local access to this repo (=~/dev/my/nixos-fossil=) + Cloudflare API access (web UI or =flarectl=).
+- Local access to this repo (=~/dev/my/nixos-fossil=) + access to the =exidia.com= DNS zone.
 - =nixos-rebuild= access to the secondary you're promoting and any *other* surviving secondaries.
 
 * Procedure
@@ -25,9 +25,9 @@ sudo -u fossil env HOME=/var/lib/fossil fossil all info | head -40
 
 (Compare =mtime= across hosts if multiple are live.)
 
-** 2. Switch DNS at Cloudflare
+** 2. Switch DNS
 
-In the =fossil.exidia.com= zone, edit the =@= (apex) A record to point at the new canonical's IPv4. TTL was 60 by default; propagation is fast.
+In the =exidia.com= zone, edit the =fossil= A record to point at the new canonical's IP. Propagation follows the record's TTL.
 
 #+begin_src bash
 # Verify:
@@ -82,7 +82,7 @@ If you also changed the *domain* of the new canonical (you shouldn't, but just i
 
 If the promotion goes wrong before DNS propagates:
 
-- Revert the Cloudflare A record.
+- Revert the =fossil= A record.
 - =git revert= the host config change + redeploy.
 
 If after DNS propagates and writes have happened on the new canonical:

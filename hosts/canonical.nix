@@ -28,7 +28,6 @@
   # have the canonical host's pubkey in their `publicKeys` list in
   # secrets/secrets.nix.
   age.secrets = {
-    cloudflare-dns.file = ../secrets/cloudflare-dns.age;
     fossil-sync = {
       file = ../secrets/fossil-sync.age;
       # Make fossil-sync readable by the fossil group (consumed by

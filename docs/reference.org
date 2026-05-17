@@ -20,7 +20,6 @@ Lookup material. Open this when you need to remember the exact name or shape of 
 
 | File                                          | Purpose                                                 | Format                                                   | Read by                            |
 |-----------------------------------------------+---------------------------------------------------------+----------------------------------------------------------+------------------------------------|
-| =cloudflare-dns.age=                            | Cloudflare DNS-01 API token                             | Env file: =CLOUDFLARE_DNS_API_TOKEN=<token>=               | =security.acme=                      |
 | =fossil-sync.age=                               | Fossil sync user password (cluster-wide)                | Plain text, one line, no trailing newline                | =bin/new-repo.sh=, sync stored URLs |
 | =tmk-password.age=                              | tmk's console-fallback yescrypt hash                    | One line =$y$...$=                                         | PAM (via =hashedPasswordFile=)       |
 | =tailscale-authkey-<host>.age=                  | Per-host Tailscale auth key (one-time, tagged)          | One line =tskey-auth-...=                                  | =services.tailscale.authKeyFile=     |
@@ -32,29 +31,28 @@ Generation steps for each — see [[file:setup.org][setup.org]].
 
 ** DNS
 
-- Registrar: Hover.
-- Zone =exidia.com= hosted at Hover.
-- Subdomain =fossil.exidia.com= *delegated* to Cloudflare (NS records at Hover point to Cloudflare).
-- Cloudflare zone for =fossil.exidia.com= contains:
-  - =@= → canonical's IPv4
-  - =s1= → secondary-1's IPv4
-  - =s2= → secondary-2's IPv4
+- Registrar: Hover; zone =exidia.com= hosted at Hover's DNS.
+- Three plain =A= (and optionally =AAAA=) records live directly in the =exidia.com= zone:
+  - =fossil= → canonical's IP
+  - =s1= → secondary-1's IP
+  - =s2= → secondary-2's IP
+- No zone delegation and no Cloudflare: ACME uses HTTP-01, which needs no DNS API. These explicit records override =exidia.com='s wildcard =*= record for those names.
 
 ** Firewall (every host)
 
-| Port  | Proto | Inbound source | Notes                                  |
-|-------+-------+----------------+----------------------------------------|
-| 22    | TCP   | public + tailnet | SSH (key-only)                       |
-| 443   | TCP   | public         | fossil server                          |
-| 41641 | UDP   | public         | Tailscale direct-connect (NixOS auto) |
-| all   | *     | (outbound)     | default-allow, stateful                |
+| Port  | Proto | Inbound source   | Notes                                 |
+|-------+-------+------------------+---------------------------------------|
+| 22    | TCP   | public + tailnet | SSH (key-only)                        |
+| 80    | TCP   | public           | ACME HTTP-01 challenge (lego)         |
+| 443   | TCP   | public           | fossil server                         |
+| 41641 | UDP   | public           | Tailscale direct-connect (NixOS auto) |
+| all   | *     | (outbound)       | default-allow, stateful               |
 
 ** Outbound dependencies
 
 Each host needs network access to:
 
-- Cloudflare API (=api.cloudflare.com=) — for DNS-01.
-- Let's Encrypt (=acme-v02.api.letsencrypt.org=) — cert issuance.
+- Let's Encrypt (=acme-v02.api.letsencrypt.org=) — cert issuance. HTTP-01 also requires Let's Encrypt to reach the host *inbound* on :80.
 - =git.exidia.com= — for =system.autoUpgrade= flake pull.
 - =hc-ping.com= (secondaries only) — for monitoring pings.
 - Tailscale coord server (=login.tailscale.com=, =controlplane.tailscale.com=).

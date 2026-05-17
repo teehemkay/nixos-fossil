@@ -17,7 +17,6 @@ This document covers day-to-day operations. The expected pace is *low* — the c
 ** Quarterly
 
 - Tailscale admin → Keys: verify auth keys haven't expired (they're one-time-use so this is mostly a non-issue after install).
-- Cloudflare API tokens: check expiry. Rotate per [[file:runbooks/rotate-secrets.org][rotate-secrets]] if needed.
 
 ** Annually
 

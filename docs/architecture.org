@@ -41,9 +41,9 @@ Fossil 2.17+ supports native TLS, eliminating the need for nginx/caddy. Native T
 - TLS key never enters fossil's chroot (read before privdrop).
 - Simpler systemd unit.
 
-** DNS-01 via Cloudflare vs. HTTP-01
+** HTTP-01 vs. DNS-01
 
-DNS-01 lets us close port 80 entirely. HTTP-01 would require a fossil =--acme= sidecar listener on :80, doubling the process count and expanding the public surface. The DNS-01 trade-off is migrating =fossil.exidia.com= to Cloudflare (Hover doesn't expose an API).
+ACME via HTTP-01: =security.acme= (lego) binds :80 in standalone mode, transiently, during issuance and renewal. Each host's cert covers one exact FQDN — no wildcard — so DNS-01's distinguishing feature is unused. DNS-01 was considered (it would let :80 stay firewalled shut) but rejected: it needs an API-capable DNS provider, and Hover — =exidia.com='s registrar and DNS host — exposes no API. Delegating or migrating the zone elsewhere to gain one is disproportionate for a single port that only ever carries ACME challenges. The cost of HTTP-01 is keeping :80 open; that is the whole trade.
 
 ** Canonical + secondaries vs. peer mesh
 

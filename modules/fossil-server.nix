@@ -83,14 +83,12 @@ in
       defaults.email = "tmk@fastmail.fm";
     };
     security.acme.certs.${cfg.domain} = {
-      dnsProvider = "cloudflare";
-      # The credentials file is sourced as a shell env file. agenix
-      # decrypts cloudflare-dns.age to this path; its contents must be:
-      #
-      #     CLOUDFLARE_DNS_API_TOKEN=<your-token>
-      #
-      # (See docs/setup.org for token-scope guidance.)
-      environmentFile = config.age.secrets.cloudflare-dns.path;
+      # HTTP-01 challenge: the ACME client (lego) binds :80 in standalone
+      # mode, only transiently during issuance and renewal. The cert
+      # covers one exact FQDN (no wildcard), so DNS-01 would buy nothing
+      # — and HTTP-01 needs no DNS-provider API token. fossil serves :443;
+      # :80 is otherwise unused, so the standalone listener never clashes.
+      listenHTTP = ":80";
       group = "fossil"; # so the fossil service can read fullchain.pem + key.pem
       reloadServices = [ "fossil-server.service" ];
     };

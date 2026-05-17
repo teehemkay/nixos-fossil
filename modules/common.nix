@@ -60,11 +60,13 @@
     pkgs.gitMinimal
   ];
 
-  # Public firewall: SSH and fossil only. Tailscale opens UDP 41641 itself.
+  # Public firewall: SSH, ACME HTTP-01 challenge, and fossil. Tailscale
+  # opens UDP 41641 itself.
   networking.firewall = {
     enable = true;
     allowedTCPPorts = [
       22
+      80
       443
     ];
   };

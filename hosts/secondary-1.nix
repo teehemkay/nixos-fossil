@@ -19,7 +19,6 @@
 
   # Agenix-decrypted secrets this host consumes.
   age.secrets = {
-    cloudflare-dns.file = ../secrets/cloudflare-dns.age;
     fossil-sync = {
       file = ../secrets/fossil-sync.age;
       owner = "fossil";

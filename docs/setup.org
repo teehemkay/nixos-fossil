@@ -9,7 +9,6 @@ First-time setup of the project. Run once.
 
 ** Prerequisites
 
-- Cloudflare account.
 - Hetzner Cloud account.
 - DigitalOcean account (only when bringing up =secondary-2=).
 - Local =age=, =agenix=, =nix=, =ssh=, =curl=, =openssl= installed.
@@ -37,45 +36,13 @@ Back up =~/.ssh/id_ed25519= (private half) to 1Password or equivalent. Losing it
 
 *** Note on the zero-byte placeholders
 
-Steps 3-7 below each populate one of the =secrets/*.age= files. The repo ships these as zero-byte placeholders (committed during implementation so Nix path literals resolve during =nix eval=). =agenix -e <file>= treats any existing =<file>= as encrypted age content and tries to decrypt it before opening the editor — and 0-byte content is not valid age payload, so =agenix= would error.
+Steps 2-5 below each populate one of the =secrets/*.age= files. The repo ships these as zero-byte placeholders (committed during implementation so Nix path literals resolve during =nix eval=). =agenix -e <file>= treats any existing =<file>= as encrypted age content and tries to decrypt it before opening the editor — and 0-byte content is not valid age payload, so =agenix= would error.
 
 **Workaround: for the FIRST encryption of each secret, `rm` the placeholder immediately before `agenix -e`.** Once a real encrypted file exists, subsequent rotations use plain =agenix -e= without the =rm= (the file is now valid encrypted content).
 
 Each step below shows the =rm secrets/<name>.age && agenix -e secrets/<name>.age= form explicitly.
 
-*** 2. Cloudflare account + DNS-01 API token
-
-In Cloudflare's dashboard:
-
-1. Add the domain =exidia.com= (or use an existing zone if you already do).
-2. Create a child zone =fossil.exidia.com=:
-   - At Hover, set NS records for =fossil.exidia.com= pointing at Cloudflare's nameservers for that subdomain.
-   - Wait for delegation to propagate (=dig NS fossil.exidia.com=).
-3. Create an API token at https://dash.cloudflare.com/profile/api-tokens:
-   - Permissions: =Zone:DNS:Edit=
-   - Zone resources: include only =fossil.exidia.com=
-   - Save the generated token securely.
-
-*** 3. Encrypt cloudflare-dns.age
-
-The =security.acme= module reads this as an env file. Format (one line, no quotes around the value, no trailing newline if your editor lets you control that):
-
-#+begin_src text
-CLOUDFLARE_DNS_API_TOKEN=<paste-the-token-here>
-#+end_src
-
-Encrypt it:
-
-#+begin_src bash
-cd ~/dev/my/nixos-fossil
-rm secrets/cloudflare-dns.age && agenix -e secrets/cloudflare-dns.age
-# Editor opens on a temp plaintext file. Type or paste the line above
-# (with your real token substituted in). Save and exit. agenix encrypts.
-#+end_src
-
-agenix uses =$EDITOR= for the temp file — set it to whatever you prefer (=export EDITOR=vim= etc.) before running the command.
-
-*** 4. Encrypt the fossil-sync password
+*** 2. Encrypt the fossil-sync password
 
 This password is embedded into HTTPS URLs by =bin/new-repo.sh= and the rotation runbook (=https://syncuser:$PASS@.../...=), so it MUST be URL-safe — no =@=, =:=, =/=, =%=, =?=, =#=, =+=, or whitespace. =pwgen -s= (the =-s= flag means "completely random, no human-friendly substitutions") produces alphanumeric output which is safe.
 
@@ -88,7 +55,7 @@ rm secrets/fossil-sync.age && agenix -e secrets/fossil-sync.age
 rm /tmp/sync.pass
 #+end_src
 
-*** 5. Encrypt tmk-password.age
+*** 3. Encrypt tmk-password.age
 
 Generate a yescrypt-hashed password (this is the breaking-glass console password):
 
@@ -98,7 +65,7 @@ rm secrets/tmk-password.age && agenix -e secrets/tmk-password.age
 # paste the hash; one line
 #+end_src
 
-*** 6. Create healthchecks.io account + 2 checks
+*** 4. Create healthchecks.io account + 2 checks
 
 At https://healthchecks.io:
 
@@ -116,7 +83,7 @@ rm secrets/healthchecks-secondary-2.age && agenix -e secrets/healthchecks-second
 # paste URL, one line
 #+end_src
 
-*** 7. Generate Tailscale auth keys
+*** 5. Generate Tailscale auth keys
 
 In Tailscale admin → Keys, create three /tagged/, /one-time/, /pre-approved/, /ephemeral=false/ auth keys; one per host. Tag them e.g. =tag:fossil=.
 
@@ -129,7 +96,7 @@ rm secrets/tailscale-authkey-secondary-1.age && agenix -e secrets/tailscale-auth
 rm secrets/tailscale-authkey-secondary-2.age && agenix -e secrets/tailscale-authkey-secondary-2.age
 #+end_src
 
-*** 8. Push to git.exidia.com
+*** 6. Push to git.exidia.com
 
 #+begin_src bash
 git add -A
@@ -152,7 +119,7 @@ End-to-end procedure for bringing up a new fossil server.
 
 ** Prerequisites
 
-- Initial bootstrap complete (you have the admin keypair, Cloudflare token, etc.).
+- Initial bootstrap complete (you have the admin keypair and all secrets encrypted).
 - Provider (Hetzner Cloud or DigitalOcean) account with an SSH key registered.
 - This repo on your laptop, in the right directory.
 
@@ -163,12 +130,14 @@ End-to-end procedure for bringing up a new fossil server.
 - Hetzner Cloud: create a CPX11 instance in the target DC, attach the NixOS rescue ISO or boot with the recovery image. Capture the IPv4.
 - DigitalOcean: similar.
 
-*** 2. DNS A record at Cloudflare
+*** 2. DNS A record
 
-In the =fossil.exidia.com= zone, add an A record for the host:
-- =@= for canonical (apex)
+In the =exidia.com= zone (at Hover), add an A record pointing at the VM's IPv4 from step 1:
+- =fossil= for canonical
 - =s1= for secondary-1
 - =s2= for secondary-2
+
+This record MUST exist before step 6 — ACME's HTTP-01 challenge validates the cert by reaching the host at this name on :80. The explicit record also overrides =exidia.com='s wildcard =*= for that name.
 
 *** 3. First boot — bootstrap install via nixos-anywhere
 

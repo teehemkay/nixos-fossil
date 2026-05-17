@@ -39,9 +39,6 @@ let
   allHosts = canonicalHost ++ secondary1Host ++ secondary2Host;
 in
 {
-  # Cloudflare DNS-01 API token: every host's ACME service reads it.
-  "cloudflare-dns.age".publicKeys = [ tmk ] ++ allHosts;
-
   # Fossil sync user password: secondaries embed it in repo remote URLs;
   # canonical needs it to create the per-repo syncuser via bin/new-repo.sh.
   "fossil-sync.age".publicKeys = [ tmk ] ++ allHosts;
