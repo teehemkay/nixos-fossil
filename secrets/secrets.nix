@@ -27,14 +27,14 @@ let
   # automatically for decryption, so no separate age-keygen or -i flag
   # is needed. Print yours with `cat ~/.ssh/id_ed25519.pub` and paste
   # the full line here BEFORE first encryption.
-  tmk = "ssh-ed25519 AAAA-placeholder-replace-with-tmk-laptop-ssh-ed25519-pubkey tmk@laptop";
+  tmk = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFQpOK/+abBb+tGwsIBvkHewJbGEBjppcejymuU1Aj74 @tmk";
 
   # Host SSH host pubkeys, as lists. Empty until each host is provisioned.
   # After provisioning, set to [ "ssh-ed25519 AAAA... root@<host>" ] then
   # run `agenix --rekey`.
-  canonicalHost   = [ ];  # e.g. [ "ssh-ed25519 AAAA... root@canonical" ]
-  secondary1Host  = [ ];
-  secondary2Host  = [ ];
+  canonicalHost = [ ]; # e.g. [ "ssh-ed25519 AAAA... root@canonical" ]
+  secondary1Host = [ ];
+  secondary2Host = [ ];
 
   allHosts = canonicalHost ++ secondary1Host ++ secondary2Host;
 in
@@ -50,9 +50,9 @@ in
   "tmk-password.age".publicKeys = [ tmk ] ++ allHosts;
 
   # Tailscale auth keys: one per host, only that host decrypts.
-  "tailscale-authkey-canonical.age".publicKeys    = [ tmk ] ++ canonicalHost;
-  "tailscale-authkey-secondary-1.age".publicKeys  = [ tmk ] ++ secondary1Host;
-  "tailscale-authkey-secondary-2.age".publicKeys  = [ tmk ] ++ secondary2Host;
+  "tailscale-authkey-canonical.age".publicKeys = [ tmk ] ++ canonicalHost;
+  "tailscale-authkey-secondary-1.age".publicKeys = [ tmk ] ++ secondary1Host;
+  "tailscale-authkey-secondary-2.age".publicKeys = [ tmk ] ++ secondary2Host;
 
   # healthchecks.io ping URLs: only secondaries need them.
   "healthchecks-secondary-1.age".publicKeys = [ tmk ] ++ secondary1Host;
