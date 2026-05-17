@@ -1,0 +1,40 @@
+#+TITLE: HTTP-01 pivot, agenix-on-macOS, and bootstrap completion
+#+DATE: [2026-05-18 Mon 00:28]
+#+PROJECT: nixos-fossil
+
+* Context
+
+Context: [[file:~/dev/my/nixos-fossil/docs/setup.org][setup.org]] (setup execution, initial bootstrap complete — host provisioning next).
+Triggered by reaching the initial-bootstrap-complete milestone after a long guided run through setup.org.
+
+This was tmk's first walk through the project's own setup procedure. It began as a straight execution of setup.org but forked twice into real design work: the planned Cloudflare DNS-01 ACME path collapsed when it met reality, and the secrets-encryption tooling turned out to be broken on macOS. Branch =main= throughout — each change went onto a short-lived branch, was eval-verified, fast-forward merged, and pushed to git.exidia.com. All seven =secrets/*.age= files are now encrypted, committed ([[orgit-rev:~/dev/my/nixos-fossil::4873b4c90bd83c4c6cd1252b1d1586e8eef399b6][4873b4c]]), and pushed. Next phase is "Adding a host" — provisioning =canonical= on Hetzner via nixos-anywhere.
+
+* Project Notes
+
+** Key Decisions
+
+- Dropped Cloudflare DNS-01, switched ACME to HTTP-01 ([[orgit-rev:~/dev/my/nixos-fossil::1b017ffe05f437d81e5a3542752ad76e1207bad3][1b017ff]]). Trigger: Cloudflare's free plan refuses a subdomain (=fossil.exidia.com=) as a zone, and =exidia.com= is a live domain (Fastmail MX, websites, several pikapod services) so migrating the whole zone was unacceptable. Deciding fact: =modules/fossil-server.nix= requests three certs for three exact FQDNs, no wildcard — DNS-01's only real advantage was unused. HTTP-01 (=security.acme= with =listenHTTP = ":80"=) needs no DNS API. Cost: port 80 open in the firewall.
+- Renamed secondaries =s1/s2.fossil.exidia.com= → =fossil1/fossil2.exidia.com= ([[orgit-rev:~/dev/my/nixos-fossil::68b4a9a2a07c7a33bd9a0726bf16798fb5118919][68b4a9a]]). The nested =s1.fossil.= form was an artifact of the now-dead Cloudflare delegated-zone plan; flat siblings are simpler with no delegation.
+- Put agenix + age + mkpasswd into the flake devShell ([[orgit-rev:~/dev/my/nixos-fossil::8e700c2d04b3897b742f1b22b7b546637b8493a8][8e700c2]], [[orgit-rev:~/dev/my/nixos-fossil::482d06a5c9d4de6f727e0a5a7e026bbbdf349e57][482d06a]]) rather than assuming global installs — a fresh macOS box had none of them.
+
+** Gotchas for this repo
+
+- *agenix =-e= is broken for non-interactive use on macOS.* Its scripted path runs =cp /dev/stdin ...=, and GNU coreutils =cp= rejects that when stdin is a pipe ("skipping file '/dev/stdin', as it was replaced while being copied"). Interactive =agenix -e= (opening vim) works fine. For headless encryption, bypass agenix and use age directly: =age -R ~/.ssh/id_ed25519.pub -o secrets/<name>.age <plaintext>=. While host recipient lists in =secrets/secrets.nix= are still empty, every secret encrypts to just =[ tmk ]=, so =~/.ssh/id_ed25519.pub= alone is the correct recipient set.
+- *agenix must run from the =secrets/= directory.* It resolves its rules file as =./secrets.nix=, and the keys in it are bare filenames. Running =agenix -e secrets/<name>.age= from the repo root fails. setup.org, operations.org and rotate-secrets.org all had this wrong; fixed in [[orgit-rev:~/dev/my/nixos-fossil::482d06a5c9d4de6f727e0a5a7e026bbbdf349e57][482d06a]].
+- *=nix eval= reads the git working tree, deletions included.* When tmk ran =rm secrets/tmk-password.age= mid-edit, all three host =eval-test= variants failed with "Path 'secrets/tmk-password.age' does not exist in Git repository" — the agenix module has a path literal =../secrets/tmk-password.age=. A missing tracked file (even a 0-byte placeholder) breaks evaluation of every host config. Restoring it with =git checkout -- <file>= fixes it.
+- =~/.ssh/id_ed25519= is passphrase-protected, so headless decryption is impossible (age needs a TTY for the passphrase). Encryption is unaffected — it only needs the public key.
+- =fossil-sync.age= as committed decrypts to 65 bytes: 64 password chars + a trailing newline vim appends on save. Harmless — =bin/new-repo.sh= reads it via =$(cat ...)= which strips trailing newlines. setup.org's "no trailing newline" wording was softened ([[orgit-rev:~/dev/my/nixos-fossil::bf2e9e39ec4bffb67a39b1e2fc25586fe7dcd684][bf2e9e3]]).
+
+* Technical Insights
+
+** An age file's size encodes its plaintext length — verification without decryption
+
+For an age file encrypted to a single ssh-ed25519 recipient, the header is fixed-length and the payload is =16 (nonce) + plaintext + 16 (chunk tag)=. Total file size = constant + plaintext_length. An empty-plaintext file came to 212 bytes; a 64-byte secret to 276. When decryption wasn't possible (passphrase-protected key, no TTY), the file size *was* the proof: 276 ⟺ exactly 64 bytes of plaintext. Compute a baseline and the delta is rigorous. Generalises to any format with a fixed header and fixed per-unit overhead — content length is verifiable from file size alone.
+
+** A zero exit code is not evidence the work happened
+
+agenix =-e= with a broken =EDITOR= exited 0 having encrypted an *empty* file (212 bytes — the empty-plaintext size). Trusting the exit code would have shipped an empty secret. =cat -v= on the file showed a ~32-byte payload, age's empty-plaintext overhead, which is what exposed it. Inspect the artifact; don't trust the return code, especially when a tool wraps an editor or other interactive step.
+
+** DNS-01 vs HTTP-01: wildcard certificates are the deciding axis
+
+DNS-01's distinguishing capabilities over HTTP-01 are issuing wildcard certs and not needing inbound :80. If every certificate is for an exact FQDN, DNS-01 buys nothing but a DNS-provider API dependency. This repo had inherited DNS-01 + a Cloudflare requirement; reading the actual =security.acme.certs= config (three exact hostnames, no wildcard) made the simplification obvious. Worth questioning inherited infrastructure choices against what the code actually needs.
