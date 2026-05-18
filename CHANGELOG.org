@@ -1,0 +1,58 @@
+#+LAST-PROCESSED-COMMIT: adafabcd0cac0aa0f4f9111f7dee0e6e6c27e0ac
+#+YEAR: 2026
+
+Format: [[https://keepachangelog.com/en/1.0.0/][keepachangelog]], grouped by date.
+
+* Changelog
+
+** [2026-05-18 Mon]
+
+*** Added
+- () Fetch autoUpgrade flake from private GitHub repo over SSH using host deploy keys
+
+*** Changed
+- (secrets) Switch agenix admin key to id_ed25519_ext and re-encrypt all secrets
+
+** [2026-05-17 Sun]
+
+*** Added
+- () Initialize encrypted secrets for all hosts via agenix
+- (flake) Add agenix, age, and mkpasswd to dev shell
+
+*** Changed
+- () Switch TLS cert acquisition from Cloudflare DNS-01 to ACME HTTP-01
+- () Rename secondary host domains from s1/s2 to fossil1/fossil2
+- (secrets) Set tmk SSH ed25519 key as agenix admin recipient
+
+*** Fixed
+- (flake) Replace nixfmt-rfc-style with nixfmt pre-commit hook
+
+** [2026-05-16 Sat]
+
+*** Added
+- () Add git-hooks.nix flake input with nixfmt, statix, and eval-test pre-commit hooks
+- () Add .envrc and gitignore for flake-managed pre-commit config
+- () Add CLAUDE.md project guidance and todo.org
+- () Add spec and approved implementation plan for git-hooks.nix flake integration
+
+** [2026-05-15 Fri]
+
+*** Added
+- () Initial NixOS flake with nixpkgs, disko, and agenix inputs
+- () common.nix module with users, SSH, sudo, fish, firewall, sysctl hardening, autoUpgrade, and journald
+- () fossil-server.nix NixOS module with ACME TLS, fossil-server service, and secondary sync timer
+- () disko.nix disk partitioning module
+- () Host configs for canonical and two secondaries, with full, bootstrap, and eval-test variants
+- () bin/new-repo.sh for cluster-wide fossil repo creation and bin/smoke-test.sh for post-deploy verification
+- () Agenix secrets recipient map and zero-byte secret placeholders for all hosts
+- () README.org, architecture.org, setup.org, operations.org, reference.org, and full runbook set
+- () Initial design spec for three-host fossil server cluster
+
+*** Changed
+- () Align documentation with git.exidia.com hosting and fix DigitalOcean rescue ESP path
+
+** [2026-05-14 Thu]
+
+*** Added
+- () Initial design spec for three-host NixOS fossil server cluster, adversarially reviewed through five rounds
+- () Initial implementation plan for fossil server cluster (37 tasks, reviewed through eight rounds)
