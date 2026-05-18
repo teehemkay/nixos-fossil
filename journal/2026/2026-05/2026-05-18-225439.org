@@ -1,0 +1,39 @@
+#+TITLE: agenix admin-key migration and autoUpgrade fetch over SSH
+#+DATE: [2026-05-18 Mon 22:54]
+#+PROJECT: nixos-fossil
+
+* Context
+
+Context: agenix admin-key consolidation and =system.autoUpgrade= fetch authentication ([[file:~/dev/my/nixos-fossil/modules/common.nix][common.nix]], [[file:~/dev/my/nixos-fossil/secrets/secrets.nix][secrets.nix]]) (maintenance then brainstorming, two changes committed and pushed).
+Triggered by tmk noticing the agenix admin key in =secrets/secrets.nix= differed from the one already trusted in =modules/common.nix= =authorizedKeys.keys=.
+
+Single session, branch =main= throughout, working tree clean at start. Two distinct pieces of work: first a key-consolidation fix ([[orgit-rev:~/dev/my/nixos-fossil::f3d11aa947752e1f61ec843b3db33f34728ba6a0][f3d11aa]]), then — prompted by tmk's follow-up about the autoUpgrade remote — a brainstorming round that pivoted twice before landing on a private GitHub repo fetched over =git+ssh= ([[orgit-rev:~/dev/my/nixos-fossil::adafabcd0cac0aa0f4f9111f7dee0e6e6c27e0ac][adafabc]]). No hosts are provisioned yet; all of this is pre-deployment config work.
+
+* Project Notes
+
+** Key Decisions
+
+- Swapped the agenix admin recipient in =secrets.nix= from =...Aj74= (=~/.ssh/id_ed25519=) to =...exaptNw= (=~/.ssh/id_ed25519_ext=), the key already in =authorizedKeys=. Rekeyed all seven =.age= files. [[orgit-rev:~/dev/my/nixos-fossil::f3d11aa947752e1f61ec843b3db33f34728ba6a0][f3d11aa]]
+- =system.autoUpgrade= now fetches the flake from a *private* GitHub repo (=teehemkay/nixos-fossil=) over =git+ssh=. Each host authenticates as its own =/etc/ssh/ssh_host_ed25519_key=, registered as a read-only deploy key. The repo stays private because it carries =journal/=, =todo.org=, and =docs/superpowers/= — not just deployable config. [[orgit-rev:~/dev/my/nixos-fossil::adafabcd0cac0aa0f4f9111f7dee0e6e6c27e0ac][adafabc]]
+- Rejected: making the repo public (exposes journal/todo, and git history can't be selectively un-published); HTTPS access token via netrc (expiry/rotation burden, plus uncertainty whether nix's =git+https= fetcher honours =netrc-file=); the =github:= API fetcher (needs =access-tokens= for private repos). =git+ssh= with the host key as deploy key won — zero new secrets.
+- Kept =git.exidia.com= as the =exidia= secondary remote at tmk's request; =origin= now points at GitHub.
+
+** Gotchas
+
+- agenix 0.15.0 only auto-discovers =~/.ssh/id_ed25519= and =~/.ssh/id_rsa= as decryption identities (verified in the agenix script, lines 137-142). It does *not* read =~/.ssh/config= =IdentityFile=. Because the new admin key sits at the non-default =~/.ssh/id_ed25519_ext=, every agenix call that *decrypts* (=-e= on a real file, =-d=, =--rekey=) now needs =-i ~/.ssh/id_ed25519_ext=. First encryption after =rm= needs no =-i= — nothing to decrypt.
+- The =id_ed25519_ext= private key is passphrase-protected. Decryption can't be verified from the non-interactive Bash tool — age tries to prompt and fails with "standard input is not a terminal, and /dev/tty is not available". Verification had to be handed to tmk's terminal.
+- The =agenix --rekey= for the key migration itself needed *no* =-i=: rekey decrypts the existing ciphertext with a *current* recipient's key — the OLD key — and that one happened to live at the default =~/.ssh/id_ed25519=, so agenix auto-found it. Only post-migration operations need the flag.
+
+* Technical Insights
+
+** Re-keying is asymmetric: it decrypts with the old recipient, encrypts to the new
+
+When migrating an age/agenix recipient, =--rekey= must first decrypt every file using a key that is *already* a recipient — i.e. the OLD key. It then re-encrypts to whatever the rules file now lists — the NEW key. So the rekey step's auth requirements differ from every step after it. If the old key sits at a tool-default path and the new one doesn't, the rekey "just works" while all later edits suddenly need an explicit identity flag. Easy to mis-document if you reason about it as one uniform operation.
+
+** A config repo is never just config
+
+The architecture doc had a vetted decision record — "the public flake doesn't expose anything sensitive" — reasoning correctly about encrypted =.age= files and public-by-DNS hostnames. But =git ls-files= showed =journal/=, =todo.org=, and =docs/superpowers/= riding along in the same repo. The doc's rationale was true within its scope and silently wrong outside it. Before acting on "make it public", enumerate what's actually tracked — and remember git history makes the decision permanent.
+
+** Verifying secret decryption without leaking the secret
+
+To confirm a rekeyed =.age= file still decrypts, pipe the plaintext to =wc -c= rather than letting it hit the terminal: a positive byte count proves decryptability, the secret never appears. (Here: 65 bytes = a 64-char =pwgen= password + newline — the count itself corroborated the content.)
