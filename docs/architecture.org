@@ -52,9 +52,11 @@ Canonical / secondaries with a single =fossil all sync -u= cron on each secondar
 
 agenix: encrypted secrets in the repo, decrypted by SSH host keys. Per-deploy bootstrap is one =agenix --rekey= step. Beats out-of-band (secrets-not-versioned) by a wide margin once you have more than one host. sops-nix would also work but adds tooling weight.
 
-** Public flake vs. private
+** Private flake repo, fetched over SSH
 
-Encrypted secrets are inert without the corresponding decryption keys. The public flake makes =system.autoUpgrade= trivially reachable and doesn't expose anything sensitive.
+The encrypted =.age= secrets are inert without their decryption keys, so a public flake would expose nothing *cryptographically* sensitive. The repo is private anyway: it also carries working notes — =journal/=, =todo.org=, =docs/superpowers/= planning artefacts — that are not meant for public reading, and git history cannot be selectively un-published.
+
+A private repo means =system.autoUpgrade= can no longer fetch anonymously. It fetches over =git+ssh=: each host registers its own =ssh_host_ed25519_key= as a read-only *deploy key* on the GitHub repo — the same pubkey already captured for the agenix recipient list, so no extra secret. SSH was chosen over an HTTPS access token (no token expiry/rotation, no credential file) and over an API token via =github:= (that path needs =access-tokens= for private repos).
 
 ** healthchecks.io heartbeat vs. SMTP alerts
 

@@ -28,7 +28,7 @@ This document covers day-to-day operations. The expected pace is *low* — the c
 
 =system.autoUpgrade= installs a systemd timer (=nixos-upgrade.timer=) that fires =Sun 03:00 UTC=, with a 30-minute random delay per host so they don't all reboot simultaneously. The service:
 
-1. =nix flake update= against =git+https://git.exidia.com/tmk/nixos-fossil?ref=main#<hostname>=.
+1. =nix flake update= against =git+ssh://git@github.com/teehemkay/nixos-fossil?ref=main#<hostname>=. The repo is private; the host authenticates with its =ssh_host_ed25519_key=, registered as a read-only deploy key on the GitHub repo.
 2. =nixos-rebuild boot= activates the new generation on next boot.
 3. If =allowReboot = true=, reboot now.
 

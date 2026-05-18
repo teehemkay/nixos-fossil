@@ -3,7 +3,7 @@
 
 * Overview
 
-A NixOS-based fossil-server cluster for self-hosting personal projects. Three hosts (canonical + 2 secondaries) replicate via fossil's built-in sync. Native TLS, no reverse proxy. Public hosting on git.exidia.com (Forgejo) with agenix-encrypted secrets.
+A NixOS-based fossil-server cluster for self-hosting personal projects. Three hosts (canonical + 2 secondaries) replicate via fossil's built-in sync. Native TLS, no reverse proxy. The flake lives in a private GitHub repository, with agenix-encrypted secrets.
 
 * Hosts
 

@@ -96,11 +96,30 @@
     "net.core.default_qdisc" = "cake";
   };
 
+  # The flake repo (github.com/teehemkay/nixos-fossil) is private, so the
+  # weekly autoUpgrade fetch authenticates over SSH. Each host's own
+  # ssh_host_ed25519_key is registered as a read-only deploy key on the
+  # repo — the same pubkey already captured for the agenix recipient
+  # list, so no extra secret is needed. The Match block is scoped to
+  # root (the user nixos-upgrade.service runs as) so it never overrides
+  # an interactive user's own github.com SSH credentials.
+  programs.ssh = {
+    knownHosts.github = {
+      hostNames = [ "github.com" ];
+      publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl";
+    };
+    extraConfig = ''
+      Match host github.com localuser root
+        IdentityFile /etc/ssh/ssh_host_ed25519_key
+        IdentitiesOnly yes
+    '';
+  };
+
   # Atomic auto-upgrade with weekly reboot for kernel patches. Staggered
   # reboots so the 3 hosts don't reboot simultaneously.
   system.autoUpgrade = {
     enable = true;
-    flake = "git+https://git.exidia.com/tmk/nixos-fossil?ref=main#${config.networking.hostName}";
+    flake = "git+ssh://git@github.com/teehemkay/nixos-fossil?ref=main#${config.networking.hostName}";
     allowReboot = true;
     dates = "Sun 03:00 UTC";
     randomizedDelaySec = "30min";

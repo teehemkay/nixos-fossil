@@ -53,7 +53,7 @@ Generation steps for each — see [[file:setup.org][setup.org]].
 Each host needs network access to:
 
 - Let's Encrypt (=acme-v02.api.letsencrypt.org=) — cert issuance. HTTP-01 also requires Let's Encrypt to reach the host *inbound* on :80.
-- =git.exidia.com= — for =system.autoUpgrade= flake pull.
+- =github.com= (SSH, :22) — for =system.autoUpgrade= flake pull from the private repo.
 - =hc-ping.com= (secondaries only) — for monitoring pings.
 - Tailscale coord server (=login.tailscale.com=, =controlplane.tailscale.com=).
 

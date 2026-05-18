@@ -47,7 +47,7 @@ services.fossilServer = {
 };
 #+end_src
 
-**Do NOT change =networking.hostName=** during promotion. The common module derives =system.autoUpgrade.flake= from =config.networking.hostName= (=git+https://git.exidia.com/tmk/nixos-fossil?ref=main#${hostName}=). If you rename =secondary-1= to =canonical=, the host will start pulling the =.#canonical= flake output from =git.exidia.com= on its next weekly autoUpgrade — which is still wired up to the OLD (dead) canonical's config, with its own hardware-config, secrets, and role. Keep the hostname stable; the role change in =services.fossilServer.role= is what makes it the new canonical. The flake output name (=.#secondary-1=) remains the binding identifier.
+**Do NOT change =networking.hostName=** during promotion. The common module derives =system.autoUpgrade.flake= from =config.networking.hostName= (=git+ssh://git@github.com/teehemkay/nixos-fossil?ref=main#${hostName}=). If you rename =secondary-1= to =canonical=, the host will start pulling the =.#canonical= flake output on its next weekly autoUpgrade — which is still wired up to the OLD (dead) canonical's config, with its own hardware-config, secrets, and role. Keep the hostname stable; the role change in =services.fossilServer.role= is what makes it the new canonical. The flake output name (=.#secondary-1=) remains the binding identifier.
 
 Commit + push:
 
