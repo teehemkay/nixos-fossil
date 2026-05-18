@@ -15,19 +15,23 @@
 #      not valid age payload. Use:
 #         rm secrets/<name>.age && agenix -e secrets/<name>.age
 #      After the first successful encryption, subsequent rotations use
-#      plain `agenix -e secrets/<name>.age` (the file now holds valid
-#      age content that agenix can decrypt).
+#      `agenix -e secrets/<name>.age -i ~/.ssh/id_ed25519_ext` (the file
+#      now holds valid age content that agenix must decrypt first, and
+#      the admin key sits at a non-default path).
 #   3. After each host's bootstrap install, capture its host pubkey from
 #      /etc/ssh/ssh_host_ed25519_key.pub. Set the corresponding list
-#      below to [ "ssh-ed25519 AAAA... root@<host>" ]. Run `agenix --rekey`
-#      to re-encrypt every affected secret so the new host can read it.
+#      below to [ "ssh-ed25519 AAAA... root@<host>" ]. Run
+#      `agenix --rekey -i ~/.ssh/id_ed25519_ext` to re-encrypt every
+#      affected secret so the new host can read it.
 let
-  # Admin: tmk's existing SSH ed25519 public key. agenix accepts SSH
-  # ed25519 keys as age recipients and finds them at ~/.ssh/id_ed25519
-  # automatically for decryption, so no separate age-keygen or -i flag
-  # is needed. Print yours with `cat ~/.ssh/id_ed25519.pub` and paste
-  # the full line here BEFORE first encryption.
-  tmk = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFQpOK/+abBb+tGwsIBvkHewJbGEBjppcejymuU1Aj74 @tmk";
+  # Admin: tmk's SSH ed25519 public key. agenix accepts SSH ed25519
+  # keys as age recipients. The matching private half lives at
+  # ~/.ssh/id_ed25519_ext — a non-default path — so every agenix
+  # invocation that decrypts (-e, -d, --rekey) must pass
+  # `-i ~/.ssh/id_ed25519_ext`; agenix only auto-discovers
+  # ~/.ssh/id_ed25519 and ~/.ssh/id_rsa. Print this key with
+  # `cat ~/.ssh/id_ed25519_ext.pub`.
+  tmk = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKILtMsWYC08UX9hLc5OZaq14vXEn6dImCQH+exaptNw tmk@ext";
 
   # Host SSH host pubkeys, as lists. Empty until each host is provisioned.
   # After provisioning, set to [ "ssh-ed25519 AAAA... root@<host>" ] then

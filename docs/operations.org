@@ -63,7 +63,7 @@ To re-enable: =sudo systemctl enable --now nixos-upgrade.timer=.
 ** Adding a new secret
 
 1. Add the new entry to =secrets/secrets.nix= with the right recipient list.
-2. From =~/dev/my/nixos-fossil/secrets=, run =agenix -e <name>.age= — paste contents in the editor that opens; save & exit.
+2. From =~/dev/my/nixos-fossil/secrets=, run =agenix -e <name>.age -i ~/.ssh/id_ed25519_ext= — paste contents in the editor that opens; save & exit.
 3. Reference =config.age.secrets.<name>.path= from the nix module that needs it.
 4. Commit + push.
 5. On each affected host: =nixos-rebuild switch --flake .#<host> --target-host root@<host>=.
@@ -71,7 +71,7 @@ To re-enable: =sudo systemctl enable --now nixos-upgrade.timer=.
 ** Rotating an existing secret
 
 #+begin_src bash
-(cd ~/dev/my/nixos-fossil/secrets && agenix -e <name>.age)   # paste new value
+(cd ~/dev/my/nixos-fossil/secrets && agenix -e <name>.age -i ~/.ssh/id_ed25519_ext)   # paste new value
 git add secrets/<name>.age && git commit -m "chore: rotate <name>"
 git push
 # Redeploy to every host that consumes this secret:
@@ -87,13 +87,13 @@ Special case: for the fossil-sync password rotation, follow [[file:runbooks/rota
 Add the host's pubkey to =secrets/secrets.nix= recipient list(s), then:
 
 #+begin_src bash
-(cd ~/dev/my/nixos-fossil/secrets && agenix --rekey)
+(cd ~/dev/my/nixos-fossil/secrets && agenix --rekey -i ~/.ssh/id_ed25519_ext)
 git add secrets/ && git commit -m "feat: grant <host> access to <secret(s)>"
 #+end_src
 
 ** Revoking a host
 
-Remove the host's pubkey from =secrets.nix=, =agenix --rekey=, commit. Note: the host already has the *decrypted* secret values; this only prevents future re-encryptions from being readable by it.
+Remove the host's pubkey from =secrets.nix=, =agenix --rekey -i ~/.ssh/id_ed25519_ext=, commit. Note: the host already has the *decrypted* secret values; this only prevents future re-encryptions from being readable by it.
 
 * Healthchecks (monitoring)
 
@@ -110,7 +110,7 @@ hc.io alerts (via email, configured in hc.io UI) if either stops pinging for >15
 
 1. At hc.io: create new check with appropriate schedule + grace.
 2. Copy the ping URL.
-3. From =~/dev/my/nixos-fossil/secrets=, run =agenix -e healthchecks-<name>.age= — paste the URL.
+3. From =~/dev/my/nixos-fossil/secrets=, run =agenix -e healthchecks-<name>.age -i ~/.ssh/id_ed25519_ext= — paste the URL.
 4. In the nix module of the unit you want monitored, add an =ExecStartPost= that =curl=s the URL (see =modules/fossil-server.nix= for the pattern).
 5. Redeploy.
 

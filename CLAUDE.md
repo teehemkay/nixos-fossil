@@ -35,8 +35,10 @@ Real `hosts/*-hardware.nix` files throw on a placeholder by design — never "fi
 `secrets/*.age` are committed as zero-byte placeholders so path literals resolve in `nix eval`. agenix cannot decrypt zero-byte content.
 
 - First encryption of a secret: `rm secrets/<name>.age && agenix -e secrets/<name>.age`.
-- Subsequent edits: `agenix -e secrets/<name>.age`.
-- A host can only decrypt secrets once its SSH ed25519 pubkey is in the recipient lists in `secrets/secrets.nix`; after adding one, run `agenix --rekey`.
+- Subsequent edits: `agenix -e secrets/<name>.age -i ~/.ssh/id_ed25519_ext`.
+- A host can only decrypt secrets once its SSH ed25519 pubkey is in the recipient lists in `secrets/secrets.nix`; after adding one, run `agenix --rekey -i ~/.ssh/id_ed25519_ext`.
+
+The admin recipient is the `~/.ssh/id_ed25519_ext` keypair. agenix only auto-discovers `~/.ssh/id_ed25519` and `~/.ssh/id_rsa`, so any agenix call that *decrypts* an existing secret (`-e` on a real file, `-d`, `--rekey`) must pass `-i ~/.ssh/id_ed25519_ext`. First encryption after `rm` doesn't decrypt, so it needs no `-i`.
 
 The fossil sync user password must be URL-safe (no `@ : / % ? # +` or whitespace) — generate with `pwgen -s 64 1`.
 

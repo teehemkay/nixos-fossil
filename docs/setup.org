@@ -18,27 +18,27 @@ First-time setup of the project. Run once.
 
 *** 1. Register your SSH key as the agenix admin recipient
 
-agenix uses your SSH ed25519 key as both the *recipient* (when encrypting) and the *identity* (when decrypting). It looks for the private half at =~/.ssh/id_ed25519= by default, so no =-i= flag is needed on any =agenix= invocation in this guide.
+agenix uses your SSH ed25519 key as both the *recipient* (when encrypting) and the *identity* (when decrypting). This repo's admin key is =~/.ssh/id_ed25519_ext= — a non-default path. agenix only auto-discovers =~/.ssh/id_ed25519= and =~/.ssh/id_rsa=, so every decrypting =agenix= invocation in this guide passes =-i ~/.ssh/id_ed25519_ext=.
 
 Print your SSH public key:
 
 #+begin_src bash
-cat ~/.ssh/id_ed25519.pub
+cat ~/.ssh/id_ed25519_ext.pub
 #+end_src
 
-Edit =secrets/secrets.nix=, replace the =tmk= placeholder string with the full line (=ssh-ed25519 AAAA... user@host=) from your =id_ed25519.pub=:
+Edit =secrets/secrets.nix=, replace the =tmk= placeholder string with the full line (=ssh-ed25519 AAAA... user@host=) from your =id_ed25519_ext.pub=:
 
 #+begin_src bash
 $EDITOR secrets/secrets.nix
 #+end_src
 
-Back up =~/.ssh/id_ed25519= (private half) to 1Password or equivalent. Losing it means losing decrypt access to every secret in the repo until a host with a recipient key can be reached.
+Back up =~/.ssh/id_ed25519_ext= (private half) to 1Password or equivalent. Losing it means losing decrypt access to every secret in the repo until a host with a recipient key can be reached.
 
 *** Note on the zero-byte placeholders
 
 Steps 2-5 below each populate one of the =secrets/*.age= files. The repo ships these as zero-byte placeholders (committed during implementation so Nix path literals resolve during =nix eval=). =agenix -e <file>= treats any existing =<file>= as encrypted age content and tries to decrypt it before opening the editor — and 0-byte content is not valid age payload, so =agenix= would error.
 
-**Workaround: for the FIRST encryption of each secret, `rm` the placeholder immediately before `agenix -e`.** Once a real encrypted file exists, subsequent rotations use plain =agenix -e= without the =rm= (the file is now valid encrypted content).
+**Workaround: for the FIRST encryption of each secret, `rm` the placeholder immediately before `agenix -e`.** Once a real encrypted file exists, subsequent rotations use =agenix -e <name>.age -i ~/.ssh/id_ed25519_ext= without the =rm= (the file is now valid encrypted content that agenix must decrypt first). First encryption needs no =-i= — there is nothing to decrypt.
 
 agenix resolves its rules file as =./secrets.nix=, so every =agenix= command below is run from the =secrets/= directory and names the file with no directory prefix. Each step shows the =cd ~/dev/my/nixos-fossil/secrets= + =rm <name>.age && agenix -e <name>.age= form explicitly.
 
@@ -180,7 +180,7 @@ canonicalHost = [ "ssh-ed25519 AAAA...captured...pubkey root@canonical" ];
 Then re-encrypt every secret whose recipient list includes this host:
 
 #+begin_src bash
-(cd ~/dev/my/nixos-fossil/secrets && agenix --rekey)
+(cd ~/dev/my/nixos-fossil/secrets && agenix --rekey -i ~/.ssh/id_ed25519_ext)
 #+end_src
 
 Commit BOTH the rekey AND the generated hardware-config that =nixos-anywhere= produced in step 4. Without committing the hardware-config, =hosts/<hostname>-hardware.nix= on =git.exidia.com= remains the throwing placeholder, and =system.autoUpgrade= (which pulls from =git+https://git.exidia.com/tmk/nixos-fossil?ref=main#<host>=) will fail to evaluate on the next scheduled run, blocking kernel patches:
